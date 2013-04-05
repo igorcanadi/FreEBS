@@ -4,32 +4,32 @@
 
 #include "freebs_device.h"
 
-#define RB_DEVICE_SIZE 1024 /* sectors */
+#define FREEBS_DEVICE_SIZE 1024 /* sectors */
 /* So, total device size = 1024 * 512 bytes = 512 KiB */
 
 /* Array where the disk stores its data */
 static u8 *dev_data;
 
-int ramdevice_init(void)
+int bsdevice_init(void)
 {
-	dev_data = vmalloc(RB_DEVICE_SIZE * RB_SECTOR_SIZE);
+	dev_data = vmalloc(FREEBS_DEVICE_SIZE * FREEBS_SECTOR_SIZE);
 	if (dev_data == NULL)
 		return -ENOMEM;
-	return RB_DEVICE_SIZE;
+	return FREEBS_DEVICE_SIZE;
 }
 
-void ramdevice_cleanup(void)
+void bsdevice_cleanup(void)
 {
 	vfree(dev_data);
 }
 
-void ramdevice_write(sector_t sector_off, u8 *buffer, unsigned int sectors)
+void bsdevice_write(sector_t sector_off, u8 *buffer, unsigned int sectors)
 {
-	memcpy(dev_data + sector_off * RB_SECTOR_SIZE, buffer,
-		sectors * RB_SECTOR_SIZE);
+	memcpy(dev_data + sector_off * FREEBS_SECTOR_SIZE, buffer,
+		sectors * FREEBS_SECTOR_SIZE);
 }
-void ramdevice_read(sector_t sector_off, u8 *buffer, unsigned int sectors)
+void bsdevice_read(sector_t sector_off, u8 *buffer, unsigned int sectors)
 {
-	memcpy(buffer, dev_data + sector_off * RB_SECTOR_SIZE,
-		sectors * RB_SECTOR_SIZE);
+	memcpy(buffer, dev_data + sector_off * FREEBS_SECTOR_SIZE,
+		sectors * FREEBS_SECTOR_SIZE);
 }

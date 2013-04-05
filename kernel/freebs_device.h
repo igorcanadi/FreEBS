@@ -1,10 +1,10 @@
 #ifndef RAMDEVICE_H
 #define RAMDEVICE_H
 
-#define RB_SECTOR_SIZE 512
+#define FREEBS_SECTOR_SIZE 512
 
-extern int ramdevice_init(void);
-extern void ramdevice_cleanup(void);
-extern void ramdevice_write(sector_t sector_off, u8 *buffer, unsigned int sectors);
-extern void ramdevice_read(sector_t sector_off, u8 *buffer, unsigned int sectors);
+extern int bsdevice_init(void);
+extern void bsdevice_cleanup(void);
+extern void bsdevice_write(sector_t sector_off, u8 *buffer, unsigned int sectors);
+extern void bsdevice_read(sector_t sector_off, u8 *buffer, unsigned int sectors);
 #endif
