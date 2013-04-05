@@ -2,8 +2,7 @@
 #include <linux/vmalloc.h>
 #include <linux/string.h>
 
-#include "ram_device.h"
-#include "partition.h"
+#include "freebs_device.h"
 
 #define RB_DEVICE_SIZE 1024 /* sectors */
 /* So, total device size = 1024 * 512 bytes = 512 KiB */
@@ -16,8 +15,6 @@ int ramdevice_init(void)
 	dev_data = vmalloc(RB_DEVICE_SIZE * RB_SECTOR_SIZE);
 	if (dev_data == NULL)
 		return -ENOMEM;
-	/* Setup its partition table */
-	copy_mbr_n_br(dev_data);
 	return RB_DEVICE_SIZE;
 }
 

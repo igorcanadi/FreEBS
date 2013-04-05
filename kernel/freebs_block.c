@@ -7,7 +7,7 @@
 #include <linux/blkdev.h>
 #include <linux/errno.h>
 
-#include "ram_device.h"
+#include "freebs_device.h"
 
 #define RB_FIRST_MINOR 0
 #define RB_MINOR_CNT 16
@@ -83,7 +83,7 @@ static int rb_transfer(struct request *req)
 		}
 		sectors = bv->bv_len / RB_SECTOR_SIZE;
 		printk(KERN_DEBUG "rb: Sector Offset: %lld; Buffer: %p; Length: %d sectors\n",
-			sector_offset, buffer, sectors);
+			(long long int) sector_offset, buffer, sectors);
 		if (dir == WRITE) /* Write to the device */
 		{
 			ramdevice_write(start_sector + sector_offset, buffer, sectors);
