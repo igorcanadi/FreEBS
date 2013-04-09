@@ -3,6 +3,7 @@
 #include <linux/string.h>
 
 #include "freebs_device.h"
+#include "net.h"
 
 #define FREEBS_DEVICE_SIZE 1024 /* sectors */
 /* So, total device size = 1024 * 512 bytes = 512 KiB */

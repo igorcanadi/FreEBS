@@ -84,11 +84,11 @@ static int fbs_transfer(struct request *req)
 		sectors = bv->bv_len / FREEBS_SECTOR_SIZE;
 		printk(KERN_DEBUG "freebs: Sector Offset: %lld; Buffer: %p; Length: %d sectors\n",
 			(long long int) sector_offset, buffer, sectors);
-		if (dir == WRITE) /* Write to the device */
+		if (dir == WRITE)
 		{
 			bsdevice_write(start_sector + sector_offset, buffer, sectors);
 		}
-		else /* Read from the device */
+		else
 		{
 			bsdevice_read(start_sector + sector_offset, buffer, sectors);
 		}
