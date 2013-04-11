@@ -4,10 +4,24 @@ import (
 	"net"
 	"log"
 	"fmt"
+	"bufio"
 )
+
+type header struct {
+	command uint16
+	length uint32
+	sector uint64
+	seq_num uint32
+	dp_flags uint32
+}
 
 func handleConnection(conn net.Conn) {
 	fmt.Println("got connection.")
+	b := bufio.NewReader(conn)
+	var buf []byte = make([]byte, sizeof(header))
+	for {
+		b.Read(buf)
+	}
 }
 
 func main() {
