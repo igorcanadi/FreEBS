@@ -77,6 +77,7 @@ static int fbs_transfer(struct request *req)
         hdr.command = cpu_to_be16(FBS_READ);
     hdr.len = cpu_to_be32(sector_cnt * FREEBS_SECTOR_SIZE);
     hdr.offset = cpu_to_be32(start_sector);
+    hdr.seq_num = cpu_to_be32(atomic_add_return(1, &fbs_dev.packet_seq));
 
     freebs_get_data_sock(&fbs_dev);
     ok = sizeof(hdr) == freebs_send(&fbs_dev, fbs_dev.data.socket, &hdr, sizeof(hdr), 0);
@@ -207,6 +208,7 @@ static int __init fbs_init(void)
     /* Driver-specific own internal data */
     fbs_dev.fbs_disk->private_data = &fbs_dev;
     fbs_dev.fbs_disk->queue = fbs_dev.fbs_queue;
+    atomic_set(&fbs_dev.packet_seq, 0);
     /*
      * You do not want partition information to show up in
      * cat /proc/partitions set this flags

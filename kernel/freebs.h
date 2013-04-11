@@ -63,6 +63,7 @@ struct fbs_header {
     __be16 command;    // fbs_req_t
     __be32 len;        // length in bytes
     __be32 offset;     // offset in virtual disk in sectors
+    __be32 seq_num;    // sequence number of this request
 } __packed;
 
 #define __packed __attribute__((packed))
