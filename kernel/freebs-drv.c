@@ -1,4 +1,4 @@
-/* Disk on FreEBS Driver */
+/* FreEBS Driver */
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/fs.h>
@@ -30,12 +30,6 @@ __be32 in_aton(const char *);
 #define FREEBS_MINOR_CNT 16
 
 static u_int freebs_major = 0;
-
-struct fbs_header {
-    __be16  command;
-    __be32 len;        // length in bytes
-    __be32 offset;     // offset in virtual disk in sectors
-} __packed;
 
 struct freebs_device fbs_dev;
 
@@ -86,8 +80,7 @@ static int fbs_transfer(struct request *req)
 
     freebs_get_data_sock(&fbs_dev);
     ok = sizeof(hdr) == freebs_send(&fbs_dev, fbs_dev.data.socket, &hdr, sizeof(hdr), 0);
-
-    //printk(KERN_DEBUG "freebs: Dir:%d; Sec:%lld; Cnt:%d\n", dir, start_sector, sector_cnt);
+    // TODO: do something about ok
 
     sector_offset = 0;
     rq_for_each_segment(bv, req, iter) {
@@ -137,8 +130,13 @@ static void fbs_request(struct request_queue *q)
         }
 #endif
         ret = fbs_transfer(req);
+
+        /*
+         * TODO: this shouldn't be called until the server responds with a success
+         * so we need a kernel thread running that listens for requests and
+         * dispatches them to the appropriate outstanding freebs request
+         */
         __blk_end_request_all(req, ret);
-        //__blk_end_request(req, ret, blk_rq_bytes(req));
     }
 }
 
@@ -158,6 +156,8 @@ static struct block_device_operations fbs_fops = {
 static int __init fbs_init(void)
 {
     int ret;
+
+    freebs_init_socks(&fbs_dev);
 
     /* Set up our FreEBS Device */
     if ((ret = bsdevice_init()) < 0) {
@@ -237,14 +237,6 @@ static void __exit fbs_cleanup(void)
     bsdevice_cleanup();
 }
 
-module_init(fbs_init);
-module_exit(fbs_cleanup);
-
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("James Paton, Becky Lam, and Igor Canadi <jpaton2@gmail.com>");
-MODULE_DESCRIPTION("FreEBS Block Driver");
-MODULE_ALIAS_BLOCKDEV_MAJOR(freebs_major);
-
 int bsdevice_init(void)
 {
     int r;
@@ -277,244 +269,6 @@ void bsdevice_cleanup(void)
 {
     if (fbs_dev.data.socket)
         sock_release(fbs_dev.data.socket);
-}
-
-
-/*
-int freebs_send_write(struct socket *sock, void *buf,
-        unsigned int nr_sectors)
-{
-    struct freebs_header fbshdr;
-    fbshdr.flags = FBS_WRITE;
-    fbshdr.nr_sectors = cpu_to_be32(nr_sectors);
-    freebs_send(sock, &fbshdr, sizeof(fbshdr), MSG_MORE);
-    freebs_send(sock, buf, nr_sectors * KERNEL_SECTOR_SIZE, NULL);
-}
-*/
-
-/* I understand drbd_no_send_page, but I don't understand drbd_send_page, which
- * seems much more complicated. So I am going with this one.
- * -- Jim
- */
-/* The idea of sendpage seems to be to put some kind of reference
- * to the page into the skb, and to hand it over to the NIC. In
- * this process get_page() gets called.
- *
- * As soon as the page was really sent over the network put_page()
- * gets called by some part of the network layer. [ NIC driver? ]
- *
- * [ get_page() / put_page() increment/decrement the count. If count
- *   reaches 0 the page will be freed. ]
- *
- * This works nicely with pages from FSs.
- * But this means that in protocol A we might signal IO completion too early!
- *
- * In order not to corrupt data during a resync we must make sure
- * that we do not reuse our own buffer pages (EEs) to early, therefore
- * we have the net_ee list.
- *
- * XFS seems to have problems, still, it submits pages with page_count == 0!
- * As a workaround, we disable sendpage on pages
- * with page_count == 0 or PageSlab.
- */
-static int _freebs_no_send_page(struct freebs_device *fbs_dev, struct page *page,
-                                int offset, size_t size, unsigned msg_flags)
-{
-    int sent = freebs_send(fbs_dev, fbs_dev->data.socket, kmap(page) + offset, size, msg_flags);
-    kunmap(page);
-    /*
-    if (sent == size)
-        fbs_dev->send_cnt += size>>9;
-        */
-    return sent == size;
-}
-
-/*
-static int _freebs_send_bio(struct freebs_device *fbs_dev, struct bio *bio)
-{
-	struct bio_vec *bvec;
-	int i;
-	* hint all but last page with MSG_MORE *
-	bio_for_each_segment(bvec, bio, i) {
-		if (!_freebs_no_send_page(fbs_dev, bvec->bv_page,
-				     bvec->bv_offset, bvec->bv_len,
-				     i == bio->bi_vcnt -1 ? 0 : MSG_MORE))
-			return 0;
-	}
-	return 1;
-}
-*/
-
-/*
-static inline void freebs_update_congested(struct freebs_device *fbs_dev)
-{
-    struct sock *sk = fbs_dev->data.socket->sk;
-    if (sk->sk_wmem_queued > sk->sk_sndbuf * 4 / 5)
-        set_bit(NET_CONGESTED, &fbs_dev->flags);
-}
-*/
-
-static int _freebs_send_page(struct freebs_device *fbs_dev, struct page *page,
-                             int offset, size_t size, unsigned msg_flags)
-{
-    mm_segment_t oldfs = get_fs();
-    int sent, ok;
-    int len = size;
-
-    /* e.g. XFS meta- & log-data is in slab pages, which have a
-     * page_count of 0 and/or have PageSlab() set.
-     * we cannot use send_page for those, as that does get_page();
-     * put_page(); and would cause either a VM_BUG directly, or
-     * __page_cache_release a page that would actually still be referenced
-     * by someone, leading to some obscure delayed Oops somewhere else. */
-    if (disable_sendpage || (page_count(page) < 1) || PageSlab(page))
-        return _freebs_no_send_page(fbs_dev, page, offset, size, msg_flags);
-
-    msg_flags |= MSG_NOSIGNAL;
-    //freebs_update_congested(fbs_dev);
-    set_fs(KERNEL_DS);
-    do {
-        sent = fbs_dev->data.socket->ops->sendpage(fbs_dev->data.socket, page,
-                                                offset, len,
-                                                msg_flags);
-        if (sent == -EAGAIN) {
-            /*
-            if (we_should_drop_the_connection(fbs_dev,
-                                              fbs_dev->data.socket))
-                break;
-            else
-                continue;
-                */
-            continue;
-        }
-        if (sent <= 0) {
-            dev_warn(DEV, "%s: size=%d len=%d sent=%d\n",
-                     __func__, (int)size, len, sent);
-            break;
-        }
-        len    -= sent;
-        offset += sent;
-    } while (len > 0 /* THINK && fbs_dev->cstate >= C_CONNECTED*/);
-    set_fs(oldfs);
-    //clear_bit(NET_CONGESTED, &fbs_dev->flags);
-
-    ok = (len == 0);
-    /*
-    if (likely(ok))
-        fbs_dev->send_cnt += size>>9;
-        */
-    return ok;
-}
-
-
-static int _freebs_send_zc_bio(struct freebs_device *fbs_dev, struct bio *bio)
-{
-    struct bio_vec *bvec;
-    int i;
-    /* hint all but last page with MSG_MORE */
-    bio_for_each_segment(bvec, bio, i) {
-        if (!_freebs_send_page(fbs_dev, bvec->bv_page,
-                               bvec->bv_offset, bvec->bv_len,
-                               i == bio->bi_vcnt -1 ? 0 : MSG_MORE))
-            return 0;
-    }
-    return 1;
-}
-
-/* Used to send write requests
- * R_PRIMARY -> Peer	(P_DATA)
- */
-int freebs_send_dblock(struct freebs_device *fbs_dev, struct freebs_request *req)
-{
-    int ok = 1;
-    struct p_data p;
-    //unsigned int dp_flags = 0;
-    //void *dgb;
-    //int dgs;
-
-    if (!freebs_get_data_sock(fbs_dev))
-        return 0;
-
-    /*
-    dgs = (fbs_dev->agreed_pro_version >= 87 && fbs_dev->integrity_w_tfm) ?
-    crypto_hash_digestsize(fbs_dev->integrity_w_tfm) : 0;
-
-    if (req->size <= DRBD_MAX_SIZE_H80_PACKET) {
-    p.head.h80.magic   = BE_DRBD_MAGIC;
-    p.head.h80.command = cpu_to_be16(P_DATA);
-    p.head.h80.length  =
-    	cpu_to_be16(sizeof(p) - sizeof(union p_header) + dgs + req->size);
-    } else {
-    p.head.h95.magic   = BE_DRBD_MAGIC_BIG;
-    p.head.h95.command = cpu_to_be16(P_DATA);
-    p.head.h95.length  =
-    	cpu_to_be32(sizeof(p) - sizeof(union p_header) + dgs + req->size);
-    }
-    */
-    p.head.h.command = cpu_to_be16(P_DATA);
-    p.head.h.length  =
-        cpu_to_be32(sizeof(p) - sizeof(union p_header) + /*dgs +*/ req->size);
-
-    p.sector   = cpu_to_be64(req->sector);
-    p.block_id = (unsigned long)req;
-    p.seq_num  = cpu_to_be32(atomic_add_return(1, &fbs_dev->packet_seq));
-
-    /*
-    dp_flags = bio_flags_to_wire(fbs_dev, req->master_bio->bi_rw);
-
-    if (fbs_dev->state.conn >= C_SYNC_SOURCE &&
-      fbs_dev->state.conn <= C_PAUSED_SYNC_T)
-    dp_flags |= DP_MAY_SET_IN_SYNC;
-
-    p.dp_flags = cpu_to_be32(dp_flags);
-    set_bit(UNPLUG_REMOTE, &fbs_dev->flags);
-    */
-    ok = (sizeof(p) ==
-          freebs_send(fbs_dev, fbs_dev->data.socket, &p, sizeof(p), 0));
-    /*
-    if (ok && dgs) {
-    dgb = fbs_dev->int_dig_out;
-    drbd_csum_bio(fbs_dev, fbs_dev->integrity_w_tfm, req->master_bio, dgb);
-    ok = dgs == drbd_send(fbs_dev, fbs_dev->data.socket, dgb, dgs, 0);
-    }
-    */
-    if (ok) {
-        /* For protocol A, we have to memcpy the payload into
-         * socket buffers, as we may complete right away
-         * as soon as we handed it over to tcp, at which point the data
-         * pages may become invalid.
-         *
-         * For data-integrity enabled, we copy it as well, so we can be
-         * sure that even if the bio pages may still be modified, it
-         * won't change the data on the wire, thus if the digest checks
-         * out ok after sending on this side, but does not fit on the
-         * receiving side, we sure have detected corruption elsewhere.
-        if (fbs_dev->net_conf->wire_protocol == DRBD_PROT_A || dgs)
-        	ok = _drbd_send_bio(fbs_dev, req->master_bio);
-        else
-        	ok = _drbd_send_zc_bio(fbs_dev, req->master_bio);
-         */
-        ok = _freebs_send_zc_bio(fbs_dev, req->master_bio);
-
-        /* double check digest, sometimes buffers have been modified in flight. */
-        //if (dgs > 0 && dgs <= 64) {
-        /* 64 byte, 512 bit, is the largest digest size
-         * currently supported in kernel crypto.
-        unsigned char digest[64];
-        drbd_csum_bio(fbs_dev, fbs_dev->integrity_w_tfm, req->master_bio, digest);
-        if (memcmp(fbs_dev->int_dig_out, digest, dgs)) {
-        	dev_warn(DEV,
-        		"Digest mismatch, buffer modified by upper layers during write: %llus +%u\n",
-        		(unsigned long long)req->sector, req->size);
-        }
-        }*/ /* else if (dgs > 64) {
-... Be noisy about digest too large ...
-} */
-    }
-
-    freebs_put_data_sock(fbs_dev);
-
-    return ok;
 }
 
 /*
@@ -590,3 +344,12 @@ void freebs_init_socks(struct freebs_device *fbs_dev)
 {
     mutex_init(&fbs_dev->data.mutex);
 }
+
+module_init(fbs_init);
+module_exit(fbs_cleanup);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("James Paton, Becky Lam, and Igor Canadi <jpaton2@gmail.com>");
+MODULE_DESCRIPTION("FreEBS Block Driver");
+MODULE_ALIAS_BLOCKDEV_MAJOR(freebs_major);
+

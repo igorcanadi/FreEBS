@@ -6,46 +6,16 @@
 #include <linux/in.h>
 
 struct freebs_socket {
-    //struct drbd_work_queue work;
     struct mutex mutex;
     struct sockaddr_in servaddr;
     struct socket    *socket;
-    /* this way we get our
-     * send/receive buffers off the stack */
-    //union p_polymorph sbuf;
-    //union p_polymorph rbuf;
 };
-
-enum freebs_packets {
-  P_DATA
-};
-
-
-/*
-enum freebs_thread_state {
-    None,
-    Running,
-    Exiting,
-    Restarting
-};
-
-struct freebs_thread {
-    spinlock_t t_lock;
-    struct task_struct *task;
-    struct completion stop;
-    enum freebs_thread_state t_state;
-    int (*function) (struct freebs_thread *);
-    struct freebs_device *fbs_dev;
-    int reset_cpu_mask;
-};
-*/
 
 struct freebs_request {
     struct bio *private_bio;
     struct freebs_device *fbs_dev;
     sector_t sector;
     unsigned int size;
-    //struct freebs_thread asender;
     struct bio *master_bio;       /* master bio pointer */
 };
 
@@ -84,10 +54,16 @@ struct freebs_device {
     //struct freebs_thread asender;
 };
 
-enum {
-    FBS_WRITE,
+enum fbs_req_t {
+    FBS_WRITE = 1,
     FBS_READ
 };
+
+struct fbs_header {
+    __be16 command;    // fbs_req_t
+    __be32 len;        // length in bytes
+    __be32 offset;     // offset in virtual disk in sectors
+} __packed;
 
 #define __packed __attribute__((packed))
 
@@ -101,14 +77,6 @@ struct p_header_only {
 union p_header {
     struct p_header_only h;
 };
-
-struct p_data {
-    union p_header head;
-    u64	    sector;    /* 64 bits sector number */
-    u64	    block_id;  /* to identify the request in protocol B&C */
-    u32	    seq_num;
-    u32	    dp_flags;
-} __packed;
 
 /* returns 1 if it was successful,
  * returns 0 if there was no data socket.
