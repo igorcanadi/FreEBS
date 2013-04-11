@@ -84,7 +84,6 @@ struct freebs_device {
     //struct freebs_thread asender;
 };
 
-
 enum {
     FBS_WRITE,
     FBS_READ
