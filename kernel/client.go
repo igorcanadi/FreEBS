@@ -3,10 +3,11 @@ package main
 import (
 	"net"
 	"log"
+	"fmt"
 )
 
 func handleConnection(conn net.Conn) {
-	conn.Close()
+	fmt.Println("got connection.")
 }
 
 func main() {
@@ -15,7 +16,9 @@ func main() {
 		log.Fatal(err)
 	}
 	for {
+		fmt.Println("waiting");
 		conn, err := ln.Accept()
+		fmt.Println("connecting")
 		if err != nil {
 			log.Fatal(err)
 		}
