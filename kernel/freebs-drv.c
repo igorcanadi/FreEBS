@@ -259,8 +259,6 @@ int bsdevice_init(void)
         printk(KERN_ERR "error connecting: %d", r);
         return r;
     }
-    /* TODO: add error handling once I figure out where to find the damn documentation
-     * for these functions */
 
     return FREEBS_DEVICE_SIZE;
 }
