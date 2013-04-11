@@ -6,6 +6,23 @@
 #include <linux/genhd.h>
 #include <linux/blkdev.h>
 #include <linux/errno.h>
+#include <linux/types.h>
+#include <linux/vmalloc.h>
+#include <linux/string.h>
+#include <linux/socket.h>
+#include <linux/net.h>
+#include <linux/in.h>
+#include <linux/blk_types.h>
+#include <linux/bio.h>
+#include <linux/socket.h>
+#include <net/sock.h>
+
+bool disable_sendpage = false;
+
+#define FREEBS_DEVICE_SIZE 1024 /* sectors */
+/* So, total device size = 1024 * 512 bytes = 512 KiB */
+
+__be32 in_aton(const char *);
 
 #include "freebs.h"
 
@@ -15,10 +32,10 @@
 static u_int freebs_major = 0;
 
 struct fbs_header {
-    u8  command;
-    u64 len;        // length in bytes
-    u32 offset;     // offset in virtual disk in bytes
-};
+    __be16  command;
+    __be32 len;        // length in bytes
+    __be32 offset;     // offset in virtual disk in sectors
+} __packed;
 
 struct freebs_device fbs_dev;
 
@@ -53,6 +70,7 @@ static int fbs_transfer(struct request *req)
     sector_t sector_offset;
     unsigned int sectors;
     u8 *buffer;
+    int ok;
 
     int dir = rq_data_dir(req);
     sector_t start_sector = blk_rq_pos(req);
@@ -60,13 +78,14 @@ static int fbs_transfer(struct request *req)
     int ret = 0;
 
     if (dir == WRITE)
-        hdr.command = FBS_WRITE;
+        hdr.command = cpu_to_be16(FBS_WRITE);
     else
-        hdr.command = FBS_READ;
-    hdr.len = sector_cnt * FREEBS_SECTOR_SIZE;
-    hdr.offset = start_sector;
+        hdr.command = cpu_to_be16(FBS_READ);
+    hdr.len = cpu_to_be32(sector_cnt * FREEBS_SECTOR_SIZE);
+    hdr.offset = cpu_to_be32(start_sector);
 
-    freebs_send(&fbs_dev, fbs_dev.data.socket, &hdr, sizeof(hdr), 0);
+    freebs_get_data_sock(&fbs_dev);
+    ok = sizeof(hdr) == freebs_send(&fbs_dev, fbs_dev.data.socket, &hdr, sizeof(hdr), 0);
 
     //printk(KERN_DEBUG "freebs: Dir:%d; Sec:%lld; Cnt:%d\n", dir, start_sector, sector_cnt);
 
@@ -225,17 +244,6 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("James Paton, Becky Lam, and Igor Canadi <jpaton2@gmail.com>");
 MODULE_DESCRIPTION("FreEBS Block Driver");
 MODULE_ALIAS_BLOCKDEV_MAJOR(freebs_major);
-#include <linux/types.h>
-#include <linux/vmalloc.h>
-#include <linux/string.h>
-#include <linux/socket.h>
-#include <linux/net.h>
-#include <linux/in.h>
-
-#define FREEBS_DEVICE_SIZE 1024 /* sectors */
-/* So, total device size = 1024 * 512 bytes = 512 KiB */
-
-__be32 in_aton(const char *);
 
 int bsdevice_init(void)
 {
@@ -271,15 +279,6 @@ void bsdevice_cleanup(void)
         sock_release(fbs_dev.data.socket);
 }
 
-
-#include <linux/blk_types.h>
-#include <linux/bio.h>
-#include <linux/socket.h>
-#include <net/sock.h>
-
-#define FBS_WRITE (1 << 0)
-
-bool disable_sendpage = false;
 
 /*
 int freebs_send_write(struct socket *sock, void *buf,
