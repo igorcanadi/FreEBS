@@ -3,22 +3,38 @@ ifeq ($(KERNELRELEASE),)
 
 	KERNEL_SOURCE := /home/paton/workspace/linux-source-3.5.0
 	PWD := $(shell pwd)
-default: module
+default: module client
 
 module:
 	$(MAKE) -C $(KERNEL_SOURCE) SUBDIRS=$(PWD) modules
 
-install:
-	scp dor.ko testbed:~/
+client: client.go
+	go build client.go
 
+.PHONY: install
+install: module client
+	scp test.py client freebs.ko testbed:~/
+	ssh testbed chmod +x ./test.py
+
+.PHONY: test
+test: install
+	ssh testbed sudo umount /mnt
+	ssh testbed sudo rmmod ./freebs.ko
+	ssh testbed sudo insmod ./freebs.ko
+	ssh testbed sudo ./test.py /dev/rb
+
+.PHONY: clean
 clean:
 	$(MAKE) -C $(KERNEL_SOURCE) SUBDIRS=$(PWD) clean
+
+tags:
+	ctags *.c *.h
 
 # Otherwise KERNELRELEASE is defined; we've been invoked from the
 # kernel build system and can use its language.
 else
 
-	obj-m := dor.o
-	dor-y := ram_block.o ram_device.o partition.o
+	obj-m := freebs.o
+	freebs-y := freebs-drv.o #freebs_block.o freebs_device.o freebs_receiver.o net.o
 
 endif

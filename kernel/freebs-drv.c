@@ -1,0 +1,355 @@
+/* FreEBS Driver */
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/fs.h>
+#include <linux/types.h>
+#include <linux/genhd.h>
+#include <linux/blkdev.h>
+#include <linux/errno.h>
+#include <linux/types.h>
+#include <linux/vmalloc.h>
+#include <linux/string.h>
+#include <linux/socket.h>
+#include <linux/net.h>
+#include <linux/in.h>
+#include <linux/blk_types.h>
+#include <linux/bio.h>
+#include <linux/socket.h>
+#include <net/sock.h>
+
+bool disable_sendpage = false;
+
+#define FREEBS_DEVICE_SIZE 1024 /* sectors */
+/* So, total device size = 1024 * 512 bytes = 512 KiB */
+
+__be32 in_aton(const char *);
+
+#include "freebs.h"
+
+#define FREEBS_FIRST_MINOR 0
+#define FREEBS_MINOR_CNT 16
+
+static u_int freebs_major = 0;
+
+struct freebs_device fbs_dev;
+
+static int fbs_open(struct block_device *bdev, fmode_t mode)
+{
+    unsigned unit = iminor(bdev->bd_inode);
+
+    printk(KERN_INFO "freebs: Device is opened\n");
+    printk(KERN_INFO "freebs: Inode number is %d\n", unit);
+
+    if (unit > FREEBS_MINOR_CNT)
+        return -ENODEV;
+    return 0;
+}
+
+static int fbs_close(struct gendisk *disk, fmode_t mode)
+{
+    printk(KERN_INFO "freebs: Device is closed\n");
+    return 0;
+}
+
+/*
+ * Actual Data transfer
+ */
+static int fbs_transfer(struct request *req)
+{
+    //struct freebs_device *dev = (struct freebs_device *)(req->rq_disk->private_data);
+
+    struct bio_vec *bv;
+    struct req_iterator iter;
+    struct fbs_header hdr;
+    sector_t sector_offset;
+    unsigned int sectors;
+    u8 *buffer;
+    int ok;
+
+    int dir = rq_data_dir(req);
+    sector_t start_sector = blk_rq_pos(req);
+    unsigned int sector_cnt = blk_rq_sectors(req);
+    int ret = 0;
+
+    if (dir == WRITE)
+        hdr.command = cpu_to_be16(FBS_WRITE);
+    else
+        hdr.command = cpu_to_be16(FBS_READ);
+    hdr.len = cpu_to_be32(sector_cnt * FREEBS_SECTOR_SIZE);
+    hdr.offset = cpu_to_be32(start_sector);
+    hdr.seq_num = cpu_to_be32(atomic_add_return(1, &fbs_dev.packet_seq));
+
+    freebs_get_data_sock(&fbs_dev);
+    ok = sizeof(hdr) == freebs_send(&fbs_dev, fbs_dev.data.socket, &hdr, sizeof(hdr), 0);
+    // TODO: do something about ok
+
+    sector_offset = 0;
+    rq_for_each_segment(bv, req, iter) {
+        buffer = page_address(bv->bv_page) + bv->bv_offset;
+        if (bv->bv_len % FREEBS_SECTOR_SIZE != 0) {
+            printk(KERN_ERR "freebs: Should never happen: "
+                   "bio size (%d) is not a multiple of FREEBS_SECTOR_SIZE (%d).\n"
+                   "This may lead to data truncation.\n",
+                   bv->bv_len, FREEBS_SECTOR_SIZE);
+            ret = -EIO;
+        }
+        sectors = bv->bv_len / FREEBS_SECTOR_SIZE;
+        printk(KERN_DEBUG "freebs: Sector Offset: %lld; Buffer: %p; Length: %d sectors\n",
+               (long long int) sector_offset, buffer, sectors);
+        freebs_send(&fbs_dev, fbs_dev.data.socket, buffer, sectors * FREEBS_SECTOR_SIZE, 0);
+        sector_offset += sectors;
+    }
+    if (sector_offset != sector_cnt) {
+        printk(KERN_ERR "freebs: bio info doesn't match with the request info");
+        ret = -EIO;
+    }
+
+    return ret;
+}
+
+/*
+ * Represents a block I/O request for us to execute
+ */
+static void fbs_request(struct request_queue *q)
+{
+    struct request *req;
+    int ret;
+
+    /* Gets the current request from the dispatch queue */
+    while ((req = blk_fetch_request(q)) != NULL) {
+#if 0
+        /*
+         * This function tells us whether we are looking at a filesystem request
+         * - one that moves block of data
+         */
+        if (!blk_fs_request(req)) {
+            printk(KERN_NOTICE "freebs: Skip non-fs request\n");
+            /* We pass 0 to indicate that we successfully completed the request */
+            __blk_end_request_all(req, 0);
+            //__blk_end_request(req, 0, blk_rq_bytes(req));
+            continue;
+        }
+#endif
+        ret = fbs_transfer(req);
+
+        /*
+         * TODO: this shouldn't be called until the server responds with a success
+         * so we need a kernel thread running that listens for requests and
+         * dispatches them to the appropriate outstanding freebs request
+         */
+        __blk_end_request_all(req, ret);
+    }
+}
+
+/*
+ * These are the file operations that performed on the FreEBS block device
+ */
+static struct block_device_operations fbs_fops = {
+    .owner = THIS_MODULE,
+    .open = fbs_open,
+    .release = fbs_close,
+};
+
+/*
+ * This is the registration and initialization section of the FreEBS block device
+ * driver
+ */
+static int __init fbs_init(void)
+{
+    int ret;
+
+    freebs_init_socks(&fbs_dev);
+
+    /* Set up our FreEBS Device */
+    if ((ret = bsdevice_init()) < 0) {
+        return ret;
+    }
+    fbs_dev.size = ret;
+
+    /* Get Registered */
+    freebs_major = register_blkdev(freebs_major, "freebs");
+    if (freebs_major <= 0) {
+        printk(KERN_ERR "freebs: Unable to get Major Number\n");
+        bsdevice_cleanup();
+        return -EBUSY;
+    }
+
+    /* Get a request queue (here queue is created) */
+    spin_lock_init(&fbs_dev.lock);
+    fbs_dev.fbs_queue = blk_init_queue(fbs_request, &fbs_dev.lock);
+    if (fbs_dev.fbs_queue == NULL) {
+        printk(KERN_ERR "freebs: blk_init_queue failure\n");
+        unregister_blkdev(freebs_major, "freebs");
+        bsdevice_cleanup();
+        return -ENOMEM;
+    }
+
+    /*
+     * Add the gendisk structure
+     * By using this memory allocation is involved,
+     * the minor number we need to pass bcz the device
+     * will support this much partitions
+     */
+    fbs_dev.fbs_disk = alloc_disk(FREEBS_MINOR_CNT);
+    if (!fbs_dev.fbs_disk) {
+        printk(KERN_ERR "freebs: alloc_disk failure\n");
+        blk_cleanup_queue(fbs_dev.fbs_queue);
+        unregister_blkdev(freebs_major, "freebs");
+        bsdevice_cleanup();
+        return -ENOMEM;
+    }
+
+    /* Setting the major number */
+    fbs_dev.fbs_disk->major = freebs_major;
+    /* Setting the first mior number */
+    fbs_dev.fbs_disk->first_minor = FREEBS_FIRST_MINOR;
+    /* Initializing the device operations */
+    fbs_dev.fbs_disk->fops = &fbs_fops;
+    /* Driver-specific own internal data */
+    fbs_dev.fbs_disk->private_data = &fbs_dev;
+    fbs_dev.fbs_disk->queue = fbs_dev.fbs_queue;
+    atomic_set(&fbs_dev.packet_seq, 0);
+    /*
+     * You do not want partition information to show up in
+     * cat /proc/partitions set this flags
+     */
+    //fbs_dev.fbs_disk->flags = GENHD_FL_SUPPRESS_PARTITION_INFO;
+    sprintf(fbs_dev.fbs_disk->disk_name, "freebs");
+    /* Setting the capacity of the device in its gendisk structure */
+    set_capacity(fbs_dev.fbs_disk, fbs_dev.size);
+
+    /* Adding the disk to the system */
+    add_disk(fbs_dev.fbs_disk);
+    /* Now the disk is "live" */
+    printk(KERN_INFO "freebs: FreEBS driver initialised (%d sectors; %d bytes)\n",
+           fbs_dev.size, fbs_dev.size * FREEBS_SECTOR_SIZE);
+
+    return 0;
+}
+/*
+ * This is the unregistration and uninitialization section of the FreEBS block
+ * device driver
+ */
+static void __exit fbs_cleanup(void)
+{
+    del_gendisk(fbs_dev.fbs_disk);
+    put_disk(fbs_dev.fbs_disk);
+    blk_cleanup_queue(fbs_dev.fbs_queue);
+    unregister_blkdev(freebs_major, "freebs");
+    bsdevice_cleanup();
+}
+
+int bsdevice_init(void)
+{
+    int r;
+    struct sockaddr_in *servaddr = &fbs_dev.data.servaddr;
+    struct socket *sock;
+
+    memset(servaddr, 0, sizeof(struct sockaddr_in));
+    r = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &sock);
+    if (r) {
+        printk(KERN_ERR "error creating socket: %d", r);
+        return r;
+    }
+    fbs_dev.data.socket = sock;
+    servaddr->sin_family = AF_INET;
+    servaddr->sin_port = htons(9000);
+    servaddr->sin_addr.s_addr = in_aton("192.168.56.10");
+
+    r = sock->ops->connect(sock, (struct sockaddr *)servaddr, sizeof(struct sockaddr), O_RDWR);
+    if (r) {
+        printk(KERN_ERR "error connecting: %d", r);
+        return r;
+    }
+
+    return FREEBS_DEVICE_SIZE;
+}
+
+void bsdevice_cleanup(void)
+{
+    if (fbs_dev.data.socket)
+        sock_release(fbs_dev.data.socket);
+}
+
+/*
+ * you must have down()ed the appropriate [m]sock_mutex elsewhere!
+ *
+ * buf = buffer if write, null if read
+ * direction = true for write, false for read
+ * size = size in bytes
+ */
+int freebs_send(struct freebs_device *fbs_dev, struct socket *sock,
+                void *buf, size_t size, unsigned msg_flags)
+{
+    struct kvec iov;
+    struct msghdr msg;
+    int rv, sent = 0;
+
+    if (!sock)
+        return -1000;
+
+    iov.iov_base = buf;
+    iov.iov_len  = size;
+
+    msg.msg_name       = NULL;
+    msg.msg_namelen    = 0;
+    msg.msg_control    = NULL;
+    msg.msg_controllen = 0;
+    msg.msg_flags      = msg_flags | MSG_NOSIGNAL;
+
+    do {
+        /* STRANGE
+         * tcp_sendmsg does _not_ use its size parameter at all ?
+         *
+         * -EAGAIN on timeout, -EINTR on signal.
+         */
+        /* THINK
+         * do we need to block DRBD_SIG if sock == &meta.socket ??
+         * otherwise wake_asender() might interrupt some send_*Ack !
+         */
+        rv = kernel_sendmsg(sock, &msg, &iov, 1, size);
+        if (rv == -EAGAIN) {
+            /*
+            if (we_should_drop_the_connection(fbs_dev, sock))
+            break;
+            else
+            */
+            continue;
+        }
+        D_ASSERT(rv != 0);
+        if (rv == -EINTR) {
+            flush_signals(current);
+            rv = 0;
+        }
+        if (rv < 0)
+            break;
+        sent += rv;
+        iov.iov_base += rv;
+        iov.iov_len  -= rv;
+    } while (sent < size);
+
+    if (rv <= 0) {
+        if (rv != -EAGAIN) {
+            dev_err(DEV, "sendmsg returned %d\n",
+                    rv);
+            //drbd_force_state(fbs_dev, NS(conn, C_BROKEN_PIPE));
+        } //else
+        //drbd_force_state(fbs_dev, NS(conn, C_TIMEOUT));
+    }
+
+    return sent;
+}
+
+void freebs_init_socks(struct freebs_device *fbs_dev)
+{
+    mutex_init(&fbs_dev->data.mutex);
+}
+
+module_init(fbs_init);
+module_exit(fbs_cleanup);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("James Paton, Becky Lam, and Igor Canadi <jpaton2@gmail.com>");
+MODULE_DESCRIPTION("FreEBS Block Driver");
+MODULE_ALIAS_BLOCKDEV_MAJOR(freebs_major);
+

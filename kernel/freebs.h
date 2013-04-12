@@ -3,144 +3,24 @@
 
 #include <linux/mutex.h>
 #include <linux/genhd.h>
+#include <linux/in.h>
 
 struct freebs_socket {
-	//struct drbd_work_queue work;
-	struct mutex mutex;
-	struct socket    *socket;
-	/* this way we get our
-	 * send/receive buffers off the stack */
-	//union p_polymorph sbuf;
-	//union p_polymorph rbuf;
-};
-
-enum freebs_thread_state {
-	None,
-	Running,
-	Exiting,
-	Restarting
-};
-
-struct freebs_thread {
-	spinlock_t t_lock;
-	struct task_struct *task;
-	struct completion stop;
-	enum freebs_thread_state t_state;
-	int (*function) (struct freebs_thread *);
-	struct freebs_conf *mdev;
-	int reset_cpu_mask;
+    struct mutex mutex;
+    struct sockaddr_in servaddr;
+    struct socket    *socket;
 };
 
 struct freebs_request {
-	struct bio *private_bio;
-  struct freebs_conf *mdev;
-	sector_t sector;
-	unsigned int size;
-	struct freebs_thread asender;
-  struct bio *master_bio;       /* master bio pointer */
-};
-
-/* The order of these constants is important.
- * The lower ones (<C_WF_REPORT_PARAMS) indicate
- * that there is no socket!
- * >=C_WF_REPORT_PARAMS ==> There is a socket
- */
-enum drbd_conns {
-	C_STANDALONE,
-	C_DISCONNECTING,  /* Temporal state on the way to StandAlone. */
-	C_UNCONNECTED,    /* >= C_UNCONNECTED -> inc_net() succeeds */
-
-	/* These temporal states are all used on the way
-	 * from >= C_CONNECTED to Unconnected.
-	 * The 'disconnect reason' states
-	 * I do not allow to change between them. */
-	C_TIMEOUT,
-	C_BROKEN_PIPE,
-	C_NETWORK_FAILURE,
-	C_PROTOCOL_ERROR,
-	C_TEAR_DOWN,
-
-	C_WF_CONNECTION,
-	C_WF_REPORT_PARAMS, /* we have a socket */
-	C_CONNECTED,      /* we have introduced each other */
-	C_STARTING_SYNC_S,  /* starting full sync by admin request. */
-	C_STARTING_SYNC_T,  /* starting full sync by admin request. */
-	C_WF_BITMAP_S,
-	C_WF_BITMAP_T,
-	C_WF_SYNC_UUID,
-
-	/* All SyncStates are tested with this comparison
-	 * xx >= C_SYNC_SOURCE && xx <= C_PAUSED_SYNC_T */
-	C_SYNC_SOURCE,
-	C_SYNC_TARGET,
-	C_VERIFY_S,
-	C_VERIFY_T,
-	C_PAUSED_SYNC_S,
-	C_PAUSED_SYNC_T,
-
-	C_AHEAD,
-	C_BEHIND,
-
-	C_MASK = 31
-};
-
-union freebs_state {
-/* According to gcc's docs is the ...
- * The order of allocation of bit-fields within a unit (C90 6.5.2.1, C99 6.7.2.1).
- * Determined by ABI.
- * pointed out by Maxim Uvarov q<muvarov@ru.mvista.com>
- * even though we transmit as "cpu_to_be32(state)",
- * the offsets of the bitfields still need to be swapped
- * on different endianness.
- */
-	struct {
-#if defined(__LITTLE_ENDIAN_BITFIELD)
-		unsigned role:2 ;   /* 3/4	 primary/secondary/unknown */
-		unsigned peer:2 ;   /* 3/4	 primary/secondary/unknown */
-		unsigned conn:5 ;   /* 17/32	 cstates */
-		unsigned disk:4 ;   /* 8/16	 from D_DISKLESS to D_UP_TO_DATE */
-		unsigned pdsk:4 ;   /* 8/16	 from D_DISKLESS to D_UP_TO_DATE */
-		unsigned susp:1 ;   /* 2/2	 IO suspended no/yes (by user) */
-		unsigned aftr_isp:1 ; /* isp .. imposed sync pause */
-		unsigned peer_isp:1 ;
-		unsigned user_isp:1 ;
-		unsigned susp_nod:1 ; /* IO suspended because no data */
-		unsigned susp_fen:1 ; /* IO suspended because fence peer handler runs*/
-		unsigned _pad:9;   /* 0	 unused */
-#elif defined(__BIG_ENDIAN_BITFIELD)
-		unsigned _pad:9;
-		unsigned susp_fen:1 ;
-		unsigned susp_nod:1 ;
-		unsigned user_isp:1 ;
-		unsigned peer_isp:1 ;
-		unsigned aftr_isp:1 ; /* isp .. imposed sync pause */
-		unsigned susp:1 ;   /* 2/2	 IO suspended  no/yes */
-		unsigned pdsk:4 ;   /* 8/16	 from D_DISKLESS to D_UP_TO_DATE */
-		unsigned disk:4 ;   /* 8/16	 from D_DISKLESS to D_UP_TO_DATE */
-		unsigned conn:5 ;   /* 17/32	 cstates */
-		unsigned peer:2 ;   /* 3/4	 primary/secondary/unknown */
-		unsigned role:2 ;   /* 3/4	 primary/secondary/unknown */
-#else
-# error "this endianness is not supported"
-#endif
-	};
-	unsigned int i;
-};
-
-struct freebs_conf {
-  struct freebs_socket data;
-  struct freebs_socket meta;
-	unsigned int        send_cnt;
-	atomic_t            packet_seq;
-  unsigned long       flags;
-  struct gendisk	    *vdisk;
-	struct freebs_thread asender;
-	union freebs_state state;
-	unsigned int ko_count;
+    struct bio *private_bio;
+    struct freebs_device *fbs_dev;
+    sector_t sector;
+    unsigned int size;
+    struct bio *master_bio;       /* master bio pointer */
 };
 
 /* to shorten dev_warn(DEV, "msg"); and relatives statements */
-#define DEV (disk_to_dev(mdev->vdisk))
+#define DEV (disk_to_dev(fbs_dev->fbs_disk))
 
 #define D_ASSERT(exp)	if (!(exp)) \
 	 dev_err(DEV, "ASSERT( " #exp " ) in %s:%d\n", __FILE__, __LINE__)
@@ -152,5 +32,80 @@ struct freebs_conf {
 	_b;								\
 	}))
 
+#define FREEBS_SECTOR_SIZE 512
+
+extern int bsdevice_init(void);
+extern void bsdevice_cleanup(void);
+
+/*
+ * The internal structure representation of our device
+ */
+struct freebs_device {
+    /* Size is the size of the device (in sectors) */
+    unsigned int size;
+    /* For exclusive access to our request queue */
+    spinlock_t lock;
+    /* Our request queue */
+    struct request_queue *fbs_queue;
+    /* This is kernel's representation of an individual disk device */
+    struct gendisk *fbs_disk;
+    struct freebs_socket data;
+    atomic_t            packet_seq;
+    //struct freebs_thread asender;
+};
+
+enum fbs_req_t {
+    FBS_WRITE = 1,
+    FBS_READ
+};
+
+struct fbs_header {
+    __be16 command;    // fbs_req_t
+    __be32 len;        // length in bytes
+    __be32 offset;     // offset in virtual disk in sectors
+    __be32 seq_num;    // sequence number of this request
+} __packed;
+
+#define __packed __attribute__((packed))
+
+struct p_header_only {
+    //u16	  magic;	/* use DRBD_MAGIC_BIG here */
+    u16	  command;
+    u32	  length;	/* Use only 24 bits of that. Ignore the highest 8 bit. */
+    u8	  payload[0];
+} __packed;
+
+union p_header {
+    struct p_header_only h;
+};
+
+/* returns 1 if it was successful,
+ * returns 0 if there was no data socket.
+ * so wherever you are going to use the data.socket, e.g. do
+ * if (!freebs_get_data_sock(fbs_dev))
+ *	return 0;
+ *	CODE();
+ * freebs_put_data_sock(fbs_dev);
+ */
+static inline int freebs_get_data_sock(struct freebs_device *fbs_dev)
+{
+    mutex_lock(&fbs_dev->data.mutex);
+    /* freebs_disconnect() could have called freebs_free_sock()
+     * while we were waiting in down()... */
+    if (unlikely(fbs_dev->data.socket == NULL)) {
+        mutex_unlock(&fbs_dev->data.mutex);
+        return 0;
+    }
+    return 1;
+}
+
+static inline void freebs_put_data_sock(struct freebs_device *fbs_dev)
+{
+    mutex_unlock(&fbs_dev->data.mutex);
+}
+
+int freebs_send(struct freebs_device *, struct socket *,
+                void *, size_t, unsigned);
+void freebs_init_socks(struct freebs_device *);
 
 #endif
