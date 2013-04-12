@@ -20,15 +20,19 @@ func main(){
         os.Exit(1) 
     }
     
-    var msg C.struct_fbs_header
-    msg.command = 1;
-    msg.len = 2
-    msg.offset = 1
-    msg.seq_num = 5
+    buffer := new(bytes.Buffer) // Manually making buffer
 
-    buffer := new(bytes.Buffer)
-    
-    binary.Write(buffer, binary.BigEndian, msg)
+    var msg C.struct_fbs_header
+        
+    msg.command = 2 // Read
+    msg.len = 1     // Sectors
+    msg.offset = 0  // Offset
+    msg.seq_num = 5 
+
+    binary.Write(buffer, binary.BigEndian, msg.command)
+    binary.Write(buffer, binary.BigEndian, msg.len)
+    binary.Write(buffer, binary.BigEndian, msg.offset)
+    binary.Write(buffer, binary.BigEndian, msg.seq_num)
 
     fmt.Printf("Client Msg: % X\n", buffer.Bytes())
      

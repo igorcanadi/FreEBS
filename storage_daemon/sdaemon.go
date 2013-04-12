@@ -7,6 +7,7 @@ import "C"
 // C libraries above this point.
 
 import (
+    "unsafe"
     "os"
     "fmt"
     "net"
@@ -90,11 +91,17 @@ func handleConnection(conn net.Conn){
 func unpackMessage(buf []byte, bytesRead int) (msg req_data) {
     // Translate raw bytes into our local input struct because
     // go doesn't allow packed structs.
-    
-    binary.Read(bytes.NewBuffer(buf[0:2]), binary.BigEndian, &msg.reqType)
-    binary.Read(bytes.NewBuffer(buf[2:6]), binary.BigEndian, &msg.length)
-    binary.Read(bytes.NewBuffer(buf[6:10]), binary.BigEndian, &msg.offset)
-    binary.Read(bytes.NewBuffer(buf[10:14]), binary.BigEndian, &msg.seqNum)
+    var dummy C.struct_fbs_header
+    commandHi := unsafe.Sizeof(dummy.command)
+    lengthHi := commandHi + unsafe.Sizeof(dummy.len)
+    offsetHi := lengthHi + unsafe.Sizeof(dummy.offset)
+
+    binary.Read(bytes.NewBuffer(buf[0:commandHi]), binary.BigEndian, &msg.reqType)
+    binary.Read(bytes.NewBuffer(buf[commandHi:lengthHi]), binary.BigEndian, &msg.length)
+    binary.Read(bytes.NewBuffer(buf[lengthHi:offsetHi]), binary.BigEndian, &msg.offset)
+    binary.Read(bytes.NewBuffer(buf[offsetHi:bytesRead]), binary.BigEndian, &msg.seqNum)
+
+//    fmt.Println("Request: ", msg.reqType, msg.length, msg.offset, msg.seqNum)
 
     return
 }
@@ -138,12 +145,19 @@ func handleReadRequest(conn net.Conn, request req_data) (err error){
 
 func handleWriteRequest(conn net.Conn, request req_data) (err error){
     var response resp_data
+    buffer := make([]byte, FBS_SECTORSIZE)
 
     response.status = 0
     response.seqNum = request.seqNum
     
+    var i uint32
+    var offset uint32
     // Read length * FBS_SECTORSIZE bytes from connection
-    
+    for i, offset = 0, request.offset * FBS_SECTORSIZE; i < request.length; i, offset = i+1, offset + FBS_SECTORSIZE {
+        conn.Read(buffer)
+        copy(volume[offset:offset+FBS_SECTORSIZE], buffer)    
+    }
+
     _, err = sendResponse(conn, response)
 
     return 
