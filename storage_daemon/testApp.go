@@ -1,5 +1,10 @@
 package main
 
+/*
+#include "msgs.h"
+*/
+import "C"
+
 import (
     "fmt"
     "os"
@@ -8,12 +13,6 @@ import (
     "encoding/binary"
 )
 
-type MyMsg struct {
-    volume uint64
-    reqType uint8
-    offset uint64
-}
-
 func main(){
     conn, err := net.Dial("tcp", "localhost:8080")   
     if err != nil {
@@ -21,14 +20,15 @@ func main(){
         os.Exit(1) 
     }
     
-    var msg MyMsg
-    msg.volume = 0xFFFF00FF
-    msg.reqType = 0xCC
-    msg.offset = 0xBB
+    var msg C.struct_fbs_header
+    msg.command = 1;
+    msg.len = 2
+    msg.offset = 1
+    msg.seq_num = 5
 
     buffer := new(bytes.Buffer)
     
-    binary.Write(buffer, binary.LittleEndian, msg)
+    binary.Write(buffer, binary.BigEndian, msg)
 
     fmt.Printf("Client Msg: % X\n", buffer.Bytes())
      
