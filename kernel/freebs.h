@@ -13,8 +13,8 @@ struct freebs_socket {
 
 struct freebs_request {
     struct freebs_device *fbs_dev;
-    sector_t sector;
-    unsigned int size;
+    sector_t sector;      // in sectors
+    unsigned int size;    // in bytes
     int seq_num;
     struct request *req;
     struct list_head    in_flight;

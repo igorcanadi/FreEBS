@@ -18,7 +18,9 @@ while True:
         print "SEQ %d" % sn
         if c == 1: # write
             print "Writing %d bytes at %d offset" % (l, o)
-            data = client.recv(l)
+            data = ''
+            while len(data) < l:
+                data = data + client.recv(l - len(data))
             for i in range(0, l):
                 MEMORY[o*512 + i] = data[i]
             client.send(struct.pack('!HI', 0, sn))

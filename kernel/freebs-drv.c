@@ -157,6 +157,7 @@ int complete_read(struct freebs_device *fbs_dev, struct request *req) {
         buffer = page_address(bv->bv_page) + bv->bv_offset;
         rv = fbs_recv(fbs_dev, buffer, bv->bv_len);
         if (rv != bv->bv_len) {
+            printk(KERN_ERR "couldn't complete read!");
             if (rv < 0)
                 return rv;
             else
@@ -190,7 +191,7 @@ int freebs_receiver(void *data)
             if (res.status == 0) {
                 if (rq_data_dir(req->req) == READ) {
                     /* read request returning */
-                    if (complete_read(fbs_dev, req->req) > 0)
+                    if (complete_read(fbs_dev, req->req) < 0)
                         status = -1;
                     else
                         status = 0;
