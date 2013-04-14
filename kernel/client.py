@@ -1,4 +1,7 @@
 import socket
+import struct
+
+MEMORY = ['\0'] * 1024 * 1024
 
 host = ''
 port = 9000
@@ -9,7 +12,18 @@ s.listen(backlog)
 
 while True:
     client, address = s.accept()
-    data = client.recv(16 * 1024)
-    if data:
-        client.send('ACK\n')
+    while True:
+        command = client.recv(14)
+        c, l, o, sn = struct.unpack('!HIII', command)
+        print "SEQ %d" % sn
+        if c == 1: # write
+            print "Writing %d bytes at %d offset" % (l, o)
+            data = client.recv(l)
+            for i in range(0, l):
+                MEMORY[o*512 + i] = data[i]
+            client.send(struct.pack('!HI', 0, sn))
+        else: # read
+            print "Reading %d bytes at %d offset" % (l, o)
+            client.send(struct.pack('!HI', 0, sn))
+            client.send(''.join(MEMORY[o*512 : o*512 + l]))
     client.close()
