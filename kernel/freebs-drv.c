@@ -15,6 +15,7 @@
 #include <linux/blk_types.h>
 #include <linux/bio.h>
 #include <linux/socket.h>
+#include <linux/kthread.h>
 #include <net/sock.h>
 
 bool disable_sendpage = false;
@@ -166,7 +167,9 @@ int complete_read(struct freebs_device *fbs_dev, struct request *req) {
  * This is the receiver thread; on startup, it loops, reading from the socket
  * and completing requests.
  */
-void freebs_receiver(struct freebs_device *fbs_dev) {
+int freebs_receiver(void *data)
+{
+    struct freebs_device *fbs_dev = data;
     struct fbs_response res;
     struct freebs_request *req;
     //struct socket *sock = fbs_dev->data.socket;
@@ -178,12 +181,21 @@ void freebs_receiver(struct freebs_device *fbs_dev) {
         if (rv == sizeof(struct fbs_response)) {
             seq_num = be32_to_cpu(res.seq_num);
             req = get_request(&fbs_dev->in_flight, &fbs_dev->in_flight_l, seq_num);
-            if (rq_data_dir(req->req) == READ) {
-                /* read request returning */
-                if (complete_read(fbs_dev, req->req) > 0)
-                    status = -1;
+            if (res.status == 0) {
+                if (rq_data_dir(req->req) == READ) {
+                    /* read request returning */
+                    if (complete_read(fbs_dev, req->req) > 0)
+                        status = -1;
+                    else
+                        status = 0;
+                }
+                else {
+                    status = 0;
+                }
+            } else {
+                status = -1;
             }
-            blk_end_request_all(req->req, res.status == 0 ? 0 : -1);
+            blk_end_request_all(req->req, status); //res.status == 0 ? 0 : -1);
         }
     }
 }
@@ -398,6 +410,8 @@ int bsdevice_init(void)
         printk(KERN_ERR "error connecting: %d", r);
         return r;
     }
+
+    kthread_run(freebs_receiver, &fbs_dev, "fbs");
 
     return FREEBS_DEVICE_SIZE;
 }
