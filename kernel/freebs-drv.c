@@ -127,7 +127,6 @@ struct freebs_request *get_request(struct list_head *queue, spinlock_t *lock, in
 
     spin_lock(lock);
     list_for_each(pos, queue) {
-        //req = container_of(pos, struct fbs_request, in_flight_l);
         req = list_entry(pos, struct freebs_request, in_flight);
         if (req->seq_num == seq_num) {
             list_del(&req->in_flight);
@@ -239,8 +238,9 @@ static int fbs_transfer(struct request *req)
     fbs_req->size = sector_cnt * FREEBS_SECTOR_SIZE;
     fbs_req->req = req;
     fbs_req->seq_num = atomic_add_return(1, &fbs_dev.packet_seq);
-    INIT_LIST_HEAD(&fbs_req->in_flight);
-    INIT_LIST_HEAD(&fbs_req->req_queue);
+    //INIT_LIST_HEAD(&fbs_req->in_flight);
+    //INIT_LIST_HEAD(&fbs_req->req_queue);
+    enqueue_request(&fbs_req->in_flight, &fbs_dev.in_flight, &fbs_dev.in_flight_l);
 
     if (dir == WRITE)
         hdr.command = cpu_to_be16(FBS_WRITE);
@@ -438,6 +438,9 @@ int bsdevice_init(void)
         printk(KERN_ERR "error connecting: %d", r);
         return r;
     }
+
+    INIT_LIST_HEAD(&fbs_dev.in_flight);
+    spin_lock_init(&fbs_dev.in_flight_l);
 
     kthread_run(freebs_receiver, &fbs_dev, "fbs");
 

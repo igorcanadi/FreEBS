@@ -3,17 +3,14 @@ ifeq ($(KERNELRELEASE),)
 
 	KERNEL_SOURCE := /home/paton/workspace/linux-source-3.5.0
 	PWD := $(shell pwd)
-default: module client
+default: module
 
 module:
 	$(MAKE) -C $(KERNEL_SOURCE) SUBDIRS=$(PWD) modules
 
-client: client.go
-	go build client.go
-
 .PHONY: install
-install: module client
-	scp test.py client freebs.ko testbed:~/
+install: module
+	scp test.py client.py freebs.ko testbed:~/
 	ssh testbed chmod +x ./test.py
 
 .PHONY: test
