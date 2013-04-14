@@ -108,6 +108,13 @@ static int fbs_recv(struct freebs_device *fbs_dev, void *buf, size_t size)
 	return rv;
 }
 
+void enqueue_request(struct list_head *new, struct list_head *queue, spinlock_t *lock)
+{
+    spin_lock(lock);
+    list_add(new, queue);
+    spin_unlock(lock);
+}
+
 /**
  * get_request
  * Gets the fbs_request from the queue with the seq_num provided. Removes it from
@@ -196,6 +203,7 @@ int freebs_receiver(void *data)
                 status = -1;
             }
             blk_end_request_all(req->req, status); //res.status == 0 ? 0 : -1);
+            kfree(req);
         }
     }
 }
@@ -210,6 +218,7 @@ static int fbs_transfer(struct request *req)
     struct bio_vec *bv;
     struct req_iterator iter;
     struct fbs_header hdr;
+    struct freebs_request *fbs_req;
     sector_t sector_offset;
     unsigned int sectors;
     u8 *buffer;
@@ -220,13 +229,26 @@ static int fbs_transfer(struct request *req)
     unsigned int sector_cnt = blk_rq_sectors(req);
     int ret = 0;
 
+    /* create and populate freebs_request struct */
+    /* TODO: use kmemcache instead of kmalloc */
+    if (!(fbs_req = kmalloc(sizeof(struct freebs_request), GFP_ATOMIC))) {
+        return -ENOMEM;
+    }
+    fbs_req->fbs_dev = &fbs_dev;
+    fbs_req->sector = start_sector;
+    fbs_req->size = sector_cnt * FREEBS_SECTOR_SIZE;
+    fbs_req->req = req;
+    fbs_req->seq_num = atomic_add_return(1, &fbs_dev.packet_seq);
+    INIT_LIST_HEAD(&fbs_req->in_flight);
+    INIT_LIST_HEAD(&fbs_req->req_queue);
+
     if (dir == WRITE)
         hdr.command = cpu_to_be16(FBS_WRITE);
     else
         hdr.command = cpu_to_be16(FBS_READ);
-    hdr.len = cpu_to_be32(sector_cnt * FREEBS_SECTOR_SIZE);
-    hdr.offset = cpu_to_be32(start_sector);
-    hdr.seq_num = cpu_to_be32(atomic_add_return(1, &fbs_dev.packet_seq));
+    hdr.len = cpu_to_be32(fbs_req->size);
+    hdr.offset = cpu_to_be32(fbs_req->sector);
+    hdr.seq_num = cpu_to_be32(fbs_req->seq_num);
 
     freebs_get_data_sock(&fbs_dev);
     printk(KERN_DEBUG "sending header...");
@@ -416,7 +438,7 @@ int bsdevice_init(void)
         return r;
     }
 
-    //kthread_run(freebs_receiver, &fbs_dev, "fbs");
+    kthread_run(freebs_receiver, &fbs_dev, "fbs");
 
     return FREEBS_DEVICE_SIZE;
 }

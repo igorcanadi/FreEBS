@@ -12,11 +12,9 @@ struct freebs_socket {
 };
 
 struct freebs_request {
-    struct bio *private_bio;
     struct freebs_device *fbs_dev;
     sector_t sector;
     unsigned int size;
-    struct bio *master_bio;       /* master bio pointer */
     int seq_num;
     struct request *req;
     struct list_head    in_flight;
