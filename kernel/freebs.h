@@ -35,8 +35,8 @@ struct freebs_request {
 
 #define FREEBS_SECTOR_SIZE 512
 
-extern int bsdevice_init(void);
-extern void bsdevice_cleanup(void);
+extern int bsdevice_init(struct freebs_device *);
+extern void bsdevice_cleanup(struct freebs_device *);
 
 /*
  * The internal structure representation of our device
@@ -54,7 +54,7 @@ struct freebs_device {
     atomic_t            packet_seq;
     struct list_head    in_flight;    /* requests that have been sent to replica
                                          manager but have not been completed */
-    spinlock_t          in_flight_l;
+    struct mutex        in_flight_l;
 };
 
 enum fbs_req_t {
