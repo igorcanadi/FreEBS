@@ -17,6 +17,7 @@ struct freebs_request {
     sector_t sector;
     unsigned int size;
     struct bio *master_bio;       /* master bio pointer */
+    struct request *req;
 };
 
 /* to shorten dev_warn(DEV, "msg"); and relatives statements */
@@ -53,9 +54,10 @@ struct freebs_device {
     atomic_t            packet_seq;
     struct list_head    in_flight;    /* requests that have been sent to replica
                                          manager but have not been completed */
+    rwlock_t            in_flight_l;
     struct list_head    req_queue;    /* requests that have not yet been sent to
                                          replica manager */
-    //struct freebs_thread asender;
+    rwlock_t            req_queue_l;
 };
 
 enum fbs_req_t {
