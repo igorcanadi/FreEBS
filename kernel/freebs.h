@@ -51,6 +51,10 @@ struct freebs_device {
     struct gendisk *fbs_disk;
     struct freebs_socket data;
     atomic_t            packet_seq;
+    struct list_head    in_flight;    /* requests that have been sent to replica
+                                         manager but have not been completed */
+    struct list_head    req_queue;    /* requests that have not yet been sent to
+                                         replica manager */
     //struct freebs_thread asender;
 };
 
@@ -64,6 +68,15 @@ struct fbs_header {
     __be32 len;        // length in bytes
     __be32 offset;     // offset in virtual disk in sectors
     __be32 seq_num;    // sequence number of this request
+} __packed;
+
+enum fbs_response {
+    SUCCESS = 0
+};
+
+struct fbs_response {
+    __be16  status;   // 0 on success -- see enum fbs_response
+    __be32  seq_num;
 } __packed;
 
 #define __packed __attribute__((packed))
