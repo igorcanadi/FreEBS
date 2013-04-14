@@ -58,35 +58,31 @@ func handleConnection(conn net.Conn){
     // Fixed size buffer
     inbuf := make([]byte, 2*FBS_SECTORSIZE)
 
-    // TODO: Make this continually read from the connection async
-    // and use a request queue
-    bytesRead, err := conn.Read(inbuf)
+    for {
+        bytesRead, err := conn.Read(inbuf)
 
-    fmt.Printf("Server: % X\n\n", inbuf[0:bytesRead])
+        fmt.Printf("Server: % X\n\n", inbuf[0:bytesRead])
 
-    if err != nil || bytesRead < 14{
-        fmt.Println("Read Error")
-        conn.Close()
-        os.Exit(1)
+        if err != nil || bytesRead < 14 {
+            fmt.Println("Read Error")
+            conn.Close()
+            return
+        }
+
+        inMessage := unpackMessage(inbuf, bytesRead)
+
+        fmt.Printf("Server: % X\n\n", inMessage)
+
+        // Process message according to request type
+        switch inMessage.reqType {
+        case 2: // Read
+            err = handleReadRequest(conn, inMessage)
+        case 1: // Write   
+            err = handleWriteRequest(conn, inMessage)
+        default:
+        }
     }
 
-    inMessage := unpackMessage(inbuf, bytesRead)
-
-    fmt.Printf("Server: % X\n\n", inMessage)
-
-    // Process message according to request type
-    switch inMessage.reqType {
-    case 2: // Read
-        err = handleReadRequest(conn, inMessage)
-    case 1: // Write   
-        err = handleWriteRequest(conn, inMessage)
-    default:
-    }
-
-    
-    // Close connection
-    conn.Close()
-    os.Exit(0)
 }
 
 
