@@ -229,6 +229,7 @@ static int fbs_transfer(struct request *req)
     hdr.seq_num = cpu_to_be32(atomic_add_return(1, &fbs_dev.packet_seq));
 
     freebs_get_data_sock(&fbs_dev);
+    printk(KERN_DEBUG "sending header...");
     ok = sizeof(hdr) == freebs_send(&fbs_dev, fbs_dev.data.socket, &hdr, sizeof(hdr), 0);
     // TODO: do something about ok
 
@@ -245,6 +246,7 @@ static int fbs_transfer(struct request *req)
         sectors = bv->bv_len / FREEBS_SECTOR_SIZE;
         printk(KERN_DEBUG "freebs: Sector Offset: %lld; Buffer: %p; Length: %d sectors\n",
                (long long int) sector_offset, buffer, sectors);
+        printk(KERN_DEBUG "sending data...");
         freebs_send(&fbs_dev, fbs_dev.data.socket, buffer, sectors * FREEBS_SECTOR_SIZE, 0);
         sector_offset += sectors;
     }
@@ -252,6 +254,8 @@ static int fbs_transfer(struct request *req)
         printk(KERN_ERR "freebs: bio info doesn't match with the request info");
         ret = -EIO;
     }
+
+    freebs_put_data_sock(&fbs_dev);
 
     return ret;
 }
@@ -406,12 +410,13 @@ int bsdevice_init(void)
     servaddr->sin_addr.s_addr = in_aton("127.0.0.1");
 
     r = sock->ops->connect(sock, (struct sockaddr *)servaddr, sizeof(struct sockaddr), O_RDWR);
+
     if (r) {
         printk(KERN_ERR "error connecting: %d", r);
         return r;
     }
 
-    kthread_run(freebs_receiver, &fbs_dev, "fbs");
+    //kthread_run(freebs_receiver, &fbs_dev, "fbs");
 
     return FREEBS_DEVICE_SIZE;
 }
