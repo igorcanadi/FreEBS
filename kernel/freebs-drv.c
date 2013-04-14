@@ -51,6 +51,143 @@ static int fbs_close(struct gendisk *disk, fmode_t mode)
     return 0;
 }
 
+static int fbs_recv(struct freebs_device *fbs_dev, void *buf, size_t size)
+{
+	mm_segment_t oldfs;
+	struct kvec iov = {
+		.iov_base = buf,
+		.iov_len = size,
+	};
+	struct msghdr msg = {
+		.msg_iovlen = 1,
+		.msg_iov = (struct iovec *)&iov,
+		.msg_flags = MSG_WAITALL | MSG_NOSIGNAL
+	};
+	int rv;
+
+	oldfs = get_fs();
+	set_fs(KERNEL_DS);
+
+	for (;;) {
+		rv = sock_recvmsg(fbs_dev->data.socket, &msg, size, msg.msg_flags);
+		if (rv == size)
+			break;
+
+		/* Note:
+		 * ECONNRESET	other side closed the connection
+		 * ERESTARTSYS	(on  sock) we got a signal
+		 */
+
+		if (rv < 0) {
+			if (rv == -ECONNRESET)
+				dev_info(DEV, "sock was reset by peer\n");
+			else if (rv != -ERESTARTSYS)
+				dev_err(DEV, "sock_recvmsg returned %d\n", rv);
+			break;
+		} else if (rv == 0) {
+			dev_info(DEV, "sock was shut down by peer\n");
+			break;
+		} else	{
+			/* signal came in, or peer/link went down,
+			 * after we read a partial message
+			 */
+			/* D_ASSERT(signal_pending(current)); */
+			break;
+		}
+	};
+
+	set_fs(oldfs);
+
+    /*
+     * TODO: deal with rv != size
+	if (rv != size)
+		fbs_force_state(mdev, NS(conn, C_BROKEN_PIPE));
+    */
+
+	return rv;
+}
+
+/**
+ * get_request
+ * Gets the fbs_request from the queue with the seq_num provided. Removes it from
+ * the queue and returns it.
+ */
+struct freebs_request *get_request(struct list_head *queue, spinlock_t *lock, int seq_num) {
+    struct list_head *pos;
+    struct freebs_request *req = NULL;
+    bool found = false;
+
+    spin_lock(lock);
+    list_for_each(pos, queue) {
+        //req = container_of(pos, struct fbs_request, in_flight_l);
+        req = list_entry(pos, struct freebs_request, in_flight);
+        if (req->seq_num == seq_num) {
+            list_del(&req->in_flight);
+            found = true;
+            break;
+        }
+    }
+    spin_unlock(lock);
+
+    if (found)
+        return req;
+    else
+        return NULL;
+}
+
+/**
+ * complete_read
+ * Completes a read request by reading data from the socket and putting it into
+ * the buffer requested.
+ */
+int complete_read(struct freebs_device *fbs_dev, struct request *req) {
+    struct bio_vec *bv;
+    struct req_iterator iter;
+    u8 *buffer;
+    int rv, bytes_read = 0;
+
+    rq_for_each_segment(bv, req, iter) {
+        buffer = page_address(bv->bv_page) + bv->bv_offset;
+        rv = fbs_recv(fbs_dev, buffer, bv->bv_len);
+        if (rv != bv->bv_len) {
+            if (rv < 0)
+                return rv;
+            else
+                return -1; // THINK: what should we return here?
+        }
+        bytes_read += rv;
+    }
+
+    return bytes_read;
+}
+
+/**
+ * freebs_receiver
+ * This is the receiver thread; on startup, it loops, reading from the socket
+ * and completing requests.
+ */
+void freebs_receiver(struct freebs_device *fbs_dev) {
+    struct fbs_response res;
+    struct freebs_request *req;
+    //struct socket *sock = fbs_dev->data.socket;
+    int rv, status;
+    uint32_t seq_num;
+    
+    for (;;) {
+        rv = fbs_recv(fbs_dev, &res, sizeof(struct fbs_response));
+        if (rv == sizeof(struct fbs_response)) {
+            seq_num = be32_to_cpu(res.seq_num);
+            req = get_request(&fbs_dev->in_flight, &fbs_dev->in_flight_l, seq_num);
+            if (rq_data_dir(req->req) == READ) {
+                /* read request returning */
+                if (complete_read(fbs_dev, req->req) > 0)
+                    status = -1;
+            }
+            blk_end_request_all(req->req, res.status == 0 ? 0 : -1);
+        }
+    }
+}
+
 /*
  * Actual Data transfer
  */
@@ -137,7 +274,7 @@ static void fbs_request(struct request_queue *q)
          * so we need a kernel thread running that listens for requests and
          * dispatches them to the appropriate outstanding freebs request
          */
-        __blk_end_request_all(req, ret);
+        //__blk_end_request_all(req, ret);
     }
 }
 
@@ -254,7 +391,7 @@ int bsdevice_init(void)
     fbs_dev.data.socket = sock;
     servaddr->sin_family = AF_INET;
     servaddr->sin_port = htons(9000);
-    servaddr->sin_addr.s_addr = in_aton("192.168.56.10");
+    servaddr->sin_addr.s_addr = in_aton("127.0.0.1");
 
     r = sock->ops->connect(sock, (struct sockaddr *)servaddr, sizeof(struct sockaddr), O_RDWR);
     if (r) {

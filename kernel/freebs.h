@@ -17,7 +17,10 @@ struct freebs_request {
     sector_t sector;
     unsigned int size;
     struct bio *master_bio;       /* master bio pointer */
+    int seq_num;
     struct request *req;
+    struct list_head    in_flight;
+    struct list_head    req_queue;
 };
 
 /* to shorten dev_warn(DEV, "msg"); and relatives statements */
@@ -54,10 +57,10 @@ struct freebs_device {
     atomic_t            packet_seq;
     struct list_head    in_flight;    /* requests that have been sent to replica
                                          manager but have not been completed */
-    rwlock_t            in_flight_l;
+    spinlock_t          in_flight_l;
     struct list_head    req_queue;    /* requests that have not yet been sent to
                                          replica manager */
-    rwlock_t            req_queue_l;
+    spinlock_t          req_queue_l;
 };
 
 enum fbs_req_t {
@@ -72,7 +75,7 @@ struct fbs_header {
     __be32 seq_num;    // sequence number of this request
 } __packed;
 
-enum fbs_response {
+enum fbs_status {
     SUCCESS = 0
 };
 
