@@ -8,7 +8,7 @@ import "C"
 
 import (
     "unsafe"
-    "os"
+//    "os"
     "fmt"
     "net"
     "bytes"
@@ -57,18 +57,23 @@ func main(){
 
 func handleConnection(conn net.Conn){
     // Fixed size buffer
-    inbuf := make([]byte, 2*FBS_SECTORSIZE)
+    inbuf := make([]byte, 14)
 
     for {
         bytesRead, err := conn.Read(inbuf)
 
-        fmt.Printf("Server: % X\n\n", inbuf[0:bytesRead])
+        
+        if bytesRead < 14 {
+            continue;
+        }
 
-        if err != nil || bytesRead < 14 {
-            fmt.Println("Read Error")
+        if err != nil {
+            fmt.Println("Read Error, bytes read: ", bytesRead)
             conn.Close()
             return
         }
+
+        fmt.Printf("Server: % X\n\n", inbuf[0:bytesRead])
 
         inMessage := unpackMessage(inbuf, bytesRead)
 
@@ -132,12 +137,15 @@ func handleReadRequest(conn net.Conn, request req_data) (err error){
     // volume[offset] is the data.
     response.status = 0
     response.seqNum = request.seqNum
-    response.data = make( []byte, request.length )
+    response.data = make( []byte, request.length*FBS_SECTORSIZE )
     
     min := FBS_SECTORSIZE*request.offset
     max := min + FBS_SECTORSIZE*request.length
-    binary.Read(bytes.NewBuffer(volume[min:max]), binary.BigEndian, &response.data)
+
+    fmt.Printf("Server: %d %d % X", min, max,volume[min:max])
     
+    binary.Read(bytes.NewBuffer(volume[min:max]), binary.BigEndian, &response.data)
+
     _, err = sendResponse(conn, response)
 
     return
@@ -152,10 +160,20 @@ func handleWriteRequest(conn net.Conn, request req_data) (err error){
     
     var i uint32
     var offset uint32
-    // Read length * FBS_SECTORSIZE bytes from connection
+    // Read length * FBS_SECTORSIZE bytes from connectioni
+
     for i, offset = 0, request.offset * FBS_SECTORSIZE; i < request.length; i, offset = i+1, offset + FBS_SECTORSIZE {
-        conn.Read(buffer)
+        bytesRead, err := conn.Read(buffer)
+        if bytesRead <= 0 {
+            i--    
+            continue
+        }
+        if err != nil {
+            break    
+        }
+        fmt.Printf("Server: Bytes to write at offset %X: % X\n", offset, buffer)
         copy(volume[offset:offset+FBS_SECTORSIZE], buffer)    
+        fmt.Printf("Server: Volume contents %X \n", volume[offset:offset+FBS_SECTORSIZE])
     }
 
     _, err = sendResponse(conn, response)
