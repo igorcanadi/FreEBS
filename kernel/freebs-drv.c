@@ -20,8 +20,8 @@
 
 bool disable_sendpage = false;
 
-#define FREEBS_DEVICE_SIZE 1024 /* sectors */
-/* So, total device size = 1024 * 512 bytes = 512 KiB */
+#define FREEBS_DEVICE_SIZE 2048 /* sectors */
+/* So, total device size = 2048 * 512 bytes = 1024 KiB = 1 MiB */
 
 __be32 in_aton(const char *);
 
