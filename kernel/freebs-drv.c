@@ -206,6 +206,75 @@ int freebs_receiver(void *data)
     }
 }
 
+int freebs_sender(void *data) 
+{
+    struct freebs_device *fbs_dev = data;
+    struct freebs_request *fbs_req;
+    struct request *req;
+    struct bio_vec *bv;
+    struct req_iterator iter;
+    struct fbs_header hdr;
+    sector_t sector_offset;
+    unsigned int sectors;
+    u8 *buffer;
+    int ok, dir;
+
+    unsigned int sector_cnt;
+
+    while (!down_interruptible(&fbs_dev->rq_queue_sem)) {
+        mutex_lock(&fbs_dev->rq_mutex);
+        if (list_empty(&fbs_dev->rq_queue)) {
+            mutex_unlock(&fbs_dev->rq_mutex);
+            continue;
+        }
+        do {
+            fbs_req = list_first_entry(&fbs_dev->rq_queue, struct freebs_request, rq_queue);
+            list_del(&fbs_req->rq_queue);
+            mutex_lock(&fbs_dev->in_flight_l);
+            list_add_tail(&fbs_req->in_flight, &fbs_dev->in_flight);
+            mutex_unlock(&fbs_dev->in_flight_l);
+            mutex_unlock(&fbs_dev->rq_mutex);
+
+            req = fbs_req->req;
+            dir = rq_data_dir(req);
+            if (dir == WRITE)
+                hdr.command = cpu_to_be16(FBS_WRITE);
+            else
+                hdr.command = cpu_to_be16(FBS_READ);
+            sector_cnt = blk_rq_sectors(req);
+            hdr.len = cpu_to_be32(fbs_req->size);
+            hdr.offset = cpu_to_be32(fbs_req->sector);
+            hdr.seq_num = cpu_to_be32(fbs_req->seq_num);
+
+            freebs_get_data_sock(fbs_dev);
+            ok = sizeof(hdr) == freebs_send(fbs_dev, fbs_dev->data.socket, &hdr, sizeof(hdr), 0);
+            // TODO: do something about ok
+
+            sector_offset = 0;
+            if (dir == WRITE) {
+                rq_for_each_segment(bv, req, iter) {
+                    buffer = page_address(bv->bv_page) + bv->bv_offset;
+                    if (bv->bv_len % FREEBS_SECTOR_SIZE != 0) 
+                        printk(KERN_ERR "freebs: Should never happen: "
+                               "bio size (%d) is not a multiple of FREEBS_SECTOR_SIZE (%d).\n"
+                               "This may lead to data truncation.\n",
+                               bv->bv_len, FREEBS_SECTOR_SIZE);
+                    sectors = bv->bv_len / FREEBS_SECTOR_SIZE;
+                    //printk(KERN_DEBUG "freebs: Sector Offset: %lld; Buffer: %p; Length: %d sectors\n",
+                           //(long long int) sector_offset, buffer, sectors);
+                    //printk(KERN_DEBUG "sending data...");
+                    freebs_send(fbs_dev, fbs_dev->data.socket, buffer, sectors * FREEBS_SECTOR_SIZE, 0);
+                    sector_offset += sectors;
+                }
+                if (sector_offset != sector_cnt) 
+                    printk(KERN_ERR "freebs: bio info doesn't match with the request info");
+            }
+            freebs_put_data_sock(fbs_dev);
+        } while (!list_empty(&fbs_dev->rq_queue));
+    }
+    return 0;
+}
+
 /*
  * Actual Data transfer
  */
@@ -213,17 +282,19 @@ static int fbs_transfer(struct request *req)
 {
     //struct freebs_device *dev = (struct freebs_device *)(req->rq_disk->private_data);
 
+    /*
     struct bio_vec *bv;
     struct req_iterator iter;
     struct fbs_header hdr;
-    struct freebs_device *fbs_dev = req->rq_disk->private_data;
-    struct freebs_request *fbs_req;
     sector_t sector_offset;
     unsigned int sectors;
     u8 *buffer;
     int ok;
 
     int dir = rq_data_dir(req);
+    */
+    struct freebs_device *fbs_dev = req->rq_disk->private_data;
+    struct freebs_request *fbs_req;
     sector_t start_sector = blk_rq_pos(req);
     unsigned int sector_cnt = blk_rq_sectors(req);
     int ret = 0;
@@ -238,8 +309,10 @@ static int fbs_transfer(struct request *req)
     fbs_req->size = sector_cnt * FREEBS_SECTOR_SIZE;
     fbs_req->req = req;
     fbs_req->seq_num = atomic_add_return(1, &fbs_dev->packet_seq);
-    enqueue_request(&fbs_req->in_flight, &fbs_dev->in_flight, &fbs_dev->in_flight_l);
+    enqueue_request(&fbs_req->rq_queue, &fbs_dev->rq_queue, &fbs_dev->rq_mutex);
+    up(&fbs_dev->rq_queue_sem);
 
+    /*
     if (dir == WRITE)
         hdr.command = cpu_to_be16(FBS_WRITE);
     else
@@ -276,6 +349,7 @@ static int fbs_transfer(struct request *req)
         }
     }
     freebs_put_data_sock(fbs_dev);
+    */
 
     return ret;
 }
@@ -304,6 +378,9 @@ static void fbs_request(struct request_queue *q)
         }
 #endif
         ret = fbs_transfer(req);
+        if (ret < 0) {
+            blk_end_request_all(req, ret);
+        }
     }
 }
 
@@ -369,9 +446,14 @@ int bsdevice_init(struct freebs_device *fbs_dev)
     }
 
     INIT_LIST_HEAD(&fbs_dev->in_flight);
+    INIT_LIST_HEAD(&fbs_dev->rq_queue);
+    sema_init(&fbs_dev->rq_queue_sem, 0);
     mutex_init(&fbs_dev->in_flight_l);
+    mutex_init(&fbs_dev->rq_mutex);
+    //up(&fbs_dev->rq_queue_sem);
 
     kthread_run(freebs_receiver, fbs_dev, "fbs");
+    kthread_run(freebs_sender, fbs_dev, "fbs");
 
     fbs_dev->size = FREEBS_DEVICE_SIZE;
 

@@ -5,6 +5,9 @@
 #include <linux/genhd.h>
 #include <linux/in.h>
 
+#define fbs_info(fmt, ...) \
+  pr_info("%s:%d - " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
+
 struct freebs_socket {
     struct mutex mutex;
     struct sockaddr_in servaddr;
@@ -18,6 +21,7 @@ struct freebs_request {
     int seq_num;
     struct request *req;
     struct list_head    in_flight;
+    struct list_head    rq_queue;
 };
 
 /* to shorten dev_warn(DEV, "msg"); and relatives statements */
@@ -55,6 +59,9 @@ struct freebs_device {
     struct list_head    in_flight;    /* requests that have been sent to replica
                                          manager but have not been completed */
     struct mutex        in_flight_l;
+    struct list_head    rq_queue;
+    struct mutex        rq_mutex;
+    struct semaphore    rq_queue_sem;
 };
 
 enum fbs_req_t {
