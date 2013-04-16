@@ -18,7 +18,7 @@
 #include <linux/kthread.h>
 #include <net/sock.h>
 
-#define FREEBS_DEVICE_SIZE 2048 /* sectors */
+#define FREEBS_DEVICE_SIZE 1024000 /* sectors */
 /* So, total device size = 2048 * 512 bytes = 1024 KiB = 1 MiB */
 
 __be32 in_aton(const char *);
