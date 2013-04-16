@@ -4,3 +4,5 @@ Module.symvers
 freebs.ko
 freebs.mod.c
 modules.order
+other_src/
+tags
