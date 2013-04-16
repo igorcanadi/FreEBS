@@ -1,0 +1,4 @@
+* make everything thread-safe
+* optimize checkpointing (maybe multiple files?)
+* add support for snapshoting
+* add caching
