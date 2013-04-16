@@ -280,19 +280,6 @@ int freebs_sender(void *data)
  */
 static int fbs_transfer(struct request *req)
 {
-    //struct freebs_device *dev = (struct freebs_device *)(req->rq_disk->private_data);
-
-    /*
-    struct bio_vec *bv;
-    struct req_iterator iter;
-    struct fbs_header hdr;
-    sector_t sector_offset;
-    unsigned int sectors;
-    u8 *buffer;
-    int ok;
-
-    int dir = rq_data_dir(req);
-    */
     struct freebs_device *fbs_dev = req->rq_disk->private_data;
     struct freebs_request *fbs_req;
     sector_t start_sector = blk_rq_pos(req);
@@ -311,45 +298,6 @@ static int fbs_transfer(struct request *req)
     fbs_req->seq_num = atomic_add_return(1, &fbs_dev->packet_seq);
     enqueue_request(&fbs_req->queue, &fbs_dev->rq_queue, &fbs_dev->rq_mutex);
     up(&fbs_dev->rq_queue_sem);
-
-    /*
-    if (dir == WRITE)
-        hdr.command = cpu_to_be16(FBS_WRITE);
-    else
-        hdr.command = cpu_to_be16(FBS_READ);
-    hdr.len = cpu_to_be32(fbs_req->size);
-    hdr.offset = cpu_to_be32(fbs_req->sector);
-    hdr.seq_num = cpu_to_be32(fbs_req->seq_num);
-
-    freebs_get_data_sock(fbs_dev);
-    ok = sizeof(hdr) == freebs_send(fbs_dev, fbs_dev->data.socket, &hdr, sizeof(hdr), 0);
-    // TODO: do something about ok
-
-    sector_offset = 0;
-    if (dir == WRITE) {
-        rq_for_each_segment(bv, req, iter) {
-            buffer = page_address(bv->bv_page) + bv->bv_offset;
-            if (bv->bv_len % FREEBS_SECTOR_SIZE != 0) {
-                printk(KERN_ERR "freebs: Should never happen: "
-                       "bio size (%d) is not a multiple of FREEBS_SECTOR_SIZE (%d).\n"
-                       "This may lead to data truncation.\n",
-                       bv->bv_len, FREEBS_SECTOR_SIZE);
-                ret = -EIO;
-            }
-            sectors = bv->bv_len / FREEBS_SECTOR_SIZE;
-            //printk(KERN_DEBUG "freebs: Sector Offset: %lld; Buffer: %p; Length: %d sectors\n",
-                   //(long long int) sector_offset, buffer, sectors);
-            //printk(KERN_DEBUG "sending data...");
-            freebs_send(fbs_dev, fbs_dev->data.socket, buffer, sectors * FREEBS_SECTOR_SIZE, 0);
-            sector_offset += sectors;
-        }
-        if (sector_offset != sector_cnt) {
-            printk(KERN_ERR "freebs: bio info doesn't match with the request info");
-            ret = -EIO;
-        }
-    }
-    freebs_put_data_sock(fbs_dev);
-    */
 
     return ret;
 }
