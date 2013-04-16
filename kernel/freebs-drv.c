@@ -125,9 +125,9 @@ struct freebs_request *get_request(struct list_head *queue, struct mutex *mutex,
 
     mutex_lock(mutex);
     list_for_each(pos, queue) {
-        req = list_entry(pos, struct freebs_request, in_flight);
+        req = list_entry(pos, struct freebs_request, queue);
         if (req->seq_num == seq_num) {
-            list_del(&req->in_flight);
+            list_del(&req->queue);
             found = true;
             break;
         }
@@ -228,12 +228,12 @@ int freebs_sender(void *data)
             continue;
         }
         do {
-            fbs_req = list_first_entry(&fbs_dev->rq_queue, struct freebs_request, rq_queue);
-            list_del(&fbs_req->rq_queue);
-            mutex_lock(&fbs_dev->in_flight_l);
-            list_add_tail(&fbs_req->in_flight, &fbs_dev->in_flight);
-            mutex_unlock(&fbs_dev->in_flight_l);
+            fbs_req = list_first_entry(&fbs_dev->rq_queue, struct freebs_request, queue);
+            list_del(&fbs_req->queue);
             mutex_unlock(&fbs_dev->rq_mutex);
+            mutex_lock(&fbs_dev->in_flight_l);
+            list_add_tail(&fbs_req->queue, &fbs_dev->in_flight);
+            mutex_unlock(&fbs_dev->in_flight_l);
 
             req = fbs_req->req;
             dir = rq_data_dir(req);
@@ -309,7 +309,7 @@ static int fbs_transfer(struct request *req)
     fbs_req->size = sector_cnt * FREEBS_SECTOR_SIZE;
     fbs_req->req = req;
     fbs_req->seq_num = atomic_add_return(1, &fbs_dev->packet_seq);
-    enqueue_request(&fbs_req->rq_queue, &fbs_dev->rq_queue, &fbs_dev->rq_mutex);
+    enqueue_request(&fbs_req->queue, &fbs_dev->rq_queue, &fbs_dev->rq_mutex);
     up(&fbs_dev->rq_queue_sem);
 
     /*

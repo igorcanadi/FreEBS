@@ -20,8 +20,7 @@ struct freebs_request {
     unsigned int size;    // in bytes
     int seq_num;
     struct request *req;
-    struct list_head    in_flight;
-    struct list_head    rq_queue;
+    struct list_head    queue;
 };
 
 /* to shorten dev_warn(DEV, "msg"); and relatives statements */
