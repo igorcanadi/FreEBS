@@ -10,8 +10,8 @@ module:
 
 .PHONY: install
 install: module
-	scp test.py client.py freebs.ko testbed:~/
-	ssh testbed chmod +x ./test.py
+	scp test.sh client.py freebs.ko testbed:~/
+	ssh testbed chmod +x ./test.sh ./client.py
 
 .PHONY: test
 test: install
