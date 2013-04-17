@@ -1,8 +1,9 @@
 #include "lsvd.h"
+#define SIZE 2*1024*1024*1024LL // 2GB
 
 int main() {
     struct lsvd_disk *lsvd = 
-        create_lsvd("/scratch/test_disk", 2*1024*1024*1024LL);
+        create_lsvd("/scratch/test_disk", SIZE / SECTOR_SIZE);
 
     if (lsvd == NULL) {
         printf("Doesn't work!\n");
@@ -17,7 +18,7 @@ int main() {
         printf("Doesn't work!\n");
     } else {
         printf("Works!\n");
-        printf("%lld %lld %lld %X\n", lsvd->version, lsvd->sblock->uid,
+        printf("%lld %d %lld %X\n", lsvd->version, lsvd->sblock->uid,
                 lsvd->sblock->size, lsvd->sblock->magic);
         close_lsvd(lsvd);
     }
