@@ -14,6 +14,8 @@ struct freebs_socket {
     struct socket    *socket;
 };
 
+//typedef unsigned int sector_t;
+
 struct freebs_request {
     struct freebs_device *fbs_dev;
     sector_t sector;      // in sectors
@@ -36,7 +38,32 @@ struct freebs_request {
 	_b;								\
 	}))
 
-#define FREEBS_SECTOR_SIZE 512
+//#define FREEBS_SECTOR_SIZE 16384
+#define KERNEL_SECTOR_SIZE 512
+
+/*
+static inline fbs_sector_t kernel_to_freebs(unsigned int sect)
+{
+  return (sect * KERNEL_SECTOR_SIZE) / FREEBS_SECTOR_SIZE;
+}
+
+static inline unsigned int freebs_to_bytes(fbs_sector_t sectors) 
+{
+  return sectors * FREEBS_SECTOR_SIZE;
+}
+
+static inline fbs_sector_t bytes_to_freebs(unsigned int bytes)
+{
+  return bytes / FREEBS_SECTOR_SIZE;
+}
+*/
+
+#ifdef DEBUG
+#define print_req(req) printk(KERN_DEBUG "fbs_req: sector %u, %u bytes, %d seq_num\n", \
+    fbs_req->sector, fbs_req->size, fbs_req->seq_num);
+#else
+#define print_req(req)
+#endif
 
 extern int bsdevice_init(struct freebs_device *);
 extern void bsdevice_cleanup(struct freebs_device *);

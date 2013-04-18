@@ -16,9 +16,10 @@
 #include <linux/bio.h>
 #include <linux/socket.h>
 #include <linux/kthread.h>
+#include <linux/slab.h>
 #include <net/sock.h>
 
-#define FREEBS_DEVICE_SIZE 1024000 /* sectors */
+#define FREEBS_DEVICE_SIZE (1073741824/512) /* bytes */
 /* So, total device size = 2048 * 512 bytes = 1024 KiB = 1 MiB */
 
 __be32 in_aton(const char *);
@@ -32,12 +33,16 @@ static u_int freebs_major = 0;
 
 struct freebs_device fbs_dev;
 
+static struct kmem_cache *fbs_req_cache;
+
 static int fbs_open(struct block_device *bdev, fmode_t mode)
 {
     unsigned unit = iminor(bdev->bd_inode);
 
+    /*
     printk(KERN_INFO "freebs: Device is opened\n");
     printk(KERN_INFO "freebs: Inode number is %d\n", unit);
+    */
 
     if (unit > FREEBS_MINOR_CNT)
         return -ENODEV;
@@ -46,7 +51,7 @@ static int fbs_open(struct block_device *bdev, fmode_t mode)
 
 static int fbs_close(struct gendisk *disk, fmode_t mode)
 {
-    printk(KERN_INFO "freebs: Device is closed\n");
+    //printk(KERN_INFO "freebs: Device is closed\n");
     return 0;
 }
 
@@ -85,6 +90,7 @@ static int fbs_recv(struct freebs_device *fbs_dev, void *buf, size_t size)
 			break;
 		} else if (rv == 0) {
 			dev_info(DEV, "sock was shut down by peer\n");
+            // TODO: do something about it
 			break;
 		} else	{
 			/* signal came in, or peer/link went down,
@@ -186,6 +192,10 @@ int freebs_receiver(void *data)
         if (rv == sizeof(struct fbs_response)) {
             seq_num = be32_to_cpu(res.seq_num);
             req = get_request(&fbs_dev->in_flight, &fbs_dev->in_flight_l, seq_num);
+            if (!req) {
+                //pr_err("freebs: unexpected request completion! skipping...");
+                continue;
+            }
             if (res.status == 0) {
                 if (rq_data_dir(req->req) == READ) {
                     /* read request returning */
@@ -201,7 +211,8 @@ int freebs_receiver(void *data)
                 status = -1;
             }
             blk_end_request_all(req->req, status); //res.status == 0 ? 0 : -1);
-            kfree(req);
+            kmem_cache_free(fbs_req_cache, req);
+            //kfree(req);
         }
     }
 }
@@ -215,11 +226,11 @@ int freebs_sender(void *data)
     struct req_iterator iter;
     struct fbs_header hdr;
     sector_t sector_offset;
-    unsigned int sectors;
+    sector_t sectors;
     u8 *buffer;
     int ok, dir;
 
-    unsigned int sector_cnt;
+    sector_t sector_cnt;
 
     while (!down_interruptible(&fbs_dev->rq_queue_sem)) {
         mutex_lock(&fbs_dev->rq_mutex);
@@ -246,6 +257,7 @@ int freebs_sender(void *data)
             hdr.offset = cpu_to_be32(fbs_req->sector);
             hdr.seq_num = cpu_to_be32(fbs_req->seq_num);
 
+
             freebs_get_data_sock(fbs_dev);
             ok = sizeof(hdr) == freebs_send(fbs_dev, fbs_dev->data.socket, &hdr, sizeof(hdr), 0);
             // TODO: do something about ok
@@ -254,16 +266,16 @@ int freebs_sender(void *data)
             if (dir == WRITE) {
                 rq_for_each_segment(bv, req, iter) {
                     buffer = page_address(bv->bv_page) + bv->bv_offset;
-                    if (bv->bv_len % FREEBS_SECTOR_SIZE != 0) 
+                    if (bv->bv_len % KERNEL_SECTOR_SIZE != 0) 
                         printk(KERN_ERR "freebs: Should never happen: "
-                               "bio size (%d) is not a multiple of FREEBS_SECTOR_SIZE (%d).\n"
+                               "bio size (%d) is not a multiple of KERNEL_SECTOR_SIZE (%d).\n"
                                "This may lead to data truncation.\n",
-                               bv->bv_len, FREEBS_SECTOR_SIZE);
-                    sectors = bv->bv_len / FREEBS_SECTOR_SIZE;
+                               bv->bv_len, KERNEL_SECTOR_SIZE);
+                    sectors = bv->bv_len / KERNEL_SECTOR_SIZE;
                     //printk(KERN_DEBUG "freebs: Sector Offset: %lld; Buffer: %p; Length: %d sectors\n",
                            //(long long int) sector_offset, buffer, sectors);
                     //printk(KERN_DEBUG "sending data...");
-                    freebs_send(fbs_dev, fbs_dev->data.socket, buffer, sectors * FREEBS_SECTOR_SIZE, 0);
+                    freebs_send(fbs_dev, fbs_dev->data.socket, buffer, sectors * KERNEL_SECTOR_SIZE, 0);
                     sector_offset += sectors;
                 }
                 if (sector_offset != sector_cnt) 
@@ -283,17 +295,17 @@ static int fbs_transfer(struct request *req)
     struct freebs_device *fbs_dev = req->rq_disk->private_data;
     struct freebs_request *fbs_req;
     sector_t start_sector = blk_rq_pos(req);
-    unsigned int sector_cnt = blk_rq_sectors(req);
+    sector_t sector_cnt = blk_rq_sectors(req);
     int ret = 0;
 
     /* create and populate freebs_request struct */
-    /* TODO: use kmemcache instead of kmalloc */
-    if (!(fbs_req = kmalloc(sizeof(struct freebs_request), GFP_ATOMIC))) {
+    if (!(fbs_req = kmem_cache_alloc(fbs_req_cache, GFP_KERNEL))) {
+    //if (!(fbs_req = kmalloc(sizeof(struct freebs_request), GFP_KERNEL))) {
         return -ENOMEM;
     }
     fbs_req->fbs_dev = fbs_dev;
     fbs_req->sector = start_sector;
-    fbs_req->size = sector_cnt * FREEBS_SECTOR_SIZE;
+    fbs_req->size = sector_cnt * KERNEL_SECTOR_SIZE;
     fbs_req->req = req;
     fbs_req->seq_num = atomic_add_return(1, &fbs_dev->packet_seq);
     enqueue_request(&fbs_req->queue, &fbs_dev->rq_queue, &fbs_dev->rq_mutex);
@@ -347,7 +359,14 @@ static struct block_device_operations fbs_fops = {
  */
 static int __init fbs_init(void)
 {
-    int ret = bsdevice_init(&fbs_dev);
+    int ret;
+
+    fbs_req_cache = kmem_cache_create("freebs_request", sizeof(struct freebs_request),
+            0, 0, NULL);
+    if (!fbs_req_cache)
+        return -ENOMEM;
+   
+    ret = bsdevice_init(&fbs_dev);
 
     if (ret > 0)
         return 0;
@@ -365,6 +384,8 @@ static void __exit fbs_cleanup(void)
     blk_cleanup_queue(fbs_dev.fbs_queue);
     unregister_blkdev(freebs_major, "freebs");
     bsdevice_cleanup(&fbs_dev);
+    // TODO: check that cache is empty before destruction
+    kmem_cache_destroy(fbs_req_cache);
 }
 
 int bsdevice_init(struct freebs_device *fbs_dev)
@@ -384,7 +405,8 @@ int bsdevice_init(struct freebs_device *fbs_dev)
     fbs_dev->data.socket = sock;
     servaddr->sin_family = AF_INET;
     servaddr->sin_port = htons(9000);
-    servaddr->sin_addr.s_addr = in_aton("127.0.0.1");
+    //servaddr->sin_addr.s_addr = in_aton("127.0.0.1");
+    servaddr->sin_addr.s_addr = in_aton("192.168.56.10");
 
     r = sock->ops->connect(sock, (struct sockaddr *)servaddr, sizeof(struct sockaddr), O_RDWR);
 
@@ -461,7 +483,7 @@ int bsdevice_init(struct freebs_device *fbs_dev)
     add_disk(fbs_dev->fbs_disk);
     /* Now the disk is "live" */
     printk(KERN_INFO "freebs: FreEBS driver initialised (%d sectors; %d bytes)\n",
-           fbs_dev->size, fbs_dev->size * FREEBS_SECTOR_SIZE);
+           fbs_dev->size, fbs_dev->size * KERNEL_SECTOR_SIZE);
 
     return FREEBS_DEVICE_SIZE;
 }
