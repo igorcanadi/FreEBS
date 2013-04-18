@@ -5,6 +5,7 @@ import struct
 import mmap
 
 size = 1024 * 1024
+sector_size = 512
 
 host = ''
 port = 9000
@@ -27,10 +28,11 @@ with open('replica.dsk', 'r+b') as f:
                 while len(data) < l:
                     data = data + client.recv(l - len(data))
                 for i in range(0, l):
-                    mm[o*512 + i] = data[i]
+                    mm[o*sector_size + i] = data[i]
+                mm.flush()
                 client.send(struct.pack('!HI', 0, sn))
             else: # read
                 #print "Reading %d bytes at %d offset" % (l, o)
                 client.send(struct.pack('!HI', 0, sn))
-                client.send(''.join(mm[o*512 : o*512 + l]))
+                client.send(''.join(mm[o*sector_size : o*sector_size + l]))
         client.close()
