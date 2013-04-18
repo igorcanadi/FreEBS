@@ -2,22 +2,22 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 #include <sys/types.h>
 #include <fcntl.h>
 #include "lsvd.h"
 
 #define COMMIT_RECORD 1
 #define DATA_RECORD 2
-#define SIZEOF_CHECKPOINT(SIZE) 2 * sizeof(uint64_t) + sizeof(uint64_t) * (SIZE)
+#define SIZEOF_CHECKPOINT(SIZE) (2 * sizeof(uint64_t) + sizeof(uint64_t) * (SIZE))
 // where is the first byte written in a new disk
 // new disk starts with superblock and two checkpoint buffers
-#define NEW_DISK_OFFSET(SIZE) sizeof(struct superblock) + \
-    2 * SIZEOF_CHECKPOINT(SIZE)
+#define NEW_DISK_OFFSET(SIZE) (sizeof(struct superblock) + \
+    2 * SIZEOF_CHECKPOINT(SIZE))
 
 struct record_descriptor {
     uint32_t magic;
     uint32_t type;
-    uint64_t length;
 };
 
 struct data_record {
@@ -57,8 +57,7 @@ int dump_checkpoint(struct lsvd_disk *lsvd, uint64_t offset) {
     }
     // write sector_to_offset map
     if (write(lsvd->fd, lsvd->sector_to_offset, sizeof(uint64_t) *
-            lsvd->sblock->size) != sizeof(uint64_t) *
-            lsvd->sblock->size) {
+            lsvd->sblock->size) != sizeof(uint64_t) * lsvd->sblock->size) {
         return -1;
     }
 
@@ -83,6 +82,12 @@ int read_checkpoint(struct lsvd_disk *lsvd) {
     if (read(lsvd->fd, lsvd->sector_to_offset, sizeof(uint64_t) *
             lsvd->sblock->size) != sizeof(uint64_t) *
             lsvd->sblock->size) {
+        return -1;
+    }
+
+
+    // seek to first un-checkpointed block
+    if (lseek(lsvd->fd, offset, SEEK_SET) < 0) {
         return -1;
     }
 
@@ -117,8 +122,8 @@ struct lsvd_disk *create_lsvd(const char *pathname, uint64_t size) {
     lsvd->sblock->last_checkpoint = sizeof(struct superblock);
     lsvd->sblock->magic = MAGIC_NUMBER;
     // write the superblock
-    if (write(lsvd->fd, lsvd->sblock, sizeof(lsvd->sblock)) !=
-            sizeof(lsvd->sblock)) {
+    if (write(lsvd->fd, lsvd->sblock, sizeof(struct superblock)) !=
+            sizeof(struct superblock)) {
         goto cleanup_sb;
     }
 
@@ -166,14 +171,17 @@ int recover_lsvd_state(struct lsvd_disk *lsvd) {
     uint64_t dr_checksum;
     uint64_t i;
 
-    read_checkpoint(lsvd);
-
-    // figure out where we are
-    if ((current = lseek(lsvd->fd, 0, SEEK_CUR)) < 0) {
+    if (read_checkpoint(lsvd) < 0) {
         return -1;
     }
 
+
     while (1) {
+        // figure out where we are
+        if ((current = lseek(lsvd->fd, 0, SEEK_CUR)) < 0) {
+            return -1;
+        }
+
         // read in record descriptor
         bytes_read = read(lsvd->fd, &rd, sizeof(rd));
         if (bytes_read != sizeof(rd) || rd.magic != MAGIC_NUMBER) {
@@ -219,11 +227,6 @@ int recover_lsvd_state(struct lsvd_disk *lsvd) {
             // update version
             lsvd->version = cr.version;
         }
-        if (lseek(lsvd->fd, rd.length, SEEK_CUR) < 0) {
-            break;
-        }
-
-        current += rd.length; // next record descriptor
     }
 
     // rewind
@@ -288,6 +291,118 @@ cleanup_sb:
 cleanup_lsvd:
     free(lsvd);
     return NULL;
+}
+
+// length and offset are in sectors
+// version has to be current_version+1, otherwise returns error
+// returns 0 on OK, -1 on error
+int write_lsvd(struct lsvd_disk *lsvd, const void *buf,
+        uint64_t length, uint64_t offset, uint64_t version) {
+    uint64_t i;
+    struct data_record dr;
+    struct commit_record cr;
+    struct record_descriptor rd;
+
+    if (version != lsvd->version + 1) {
+        // we got an out-of-order write!
+        return -1;
+    }
+
+    // construct data record
+    dr.disk_offset = offset;
+    dr.length = length;
+
+    // construct record descriptor for data record
+    rd.magic = MAGIC_NUMBER;
+    rd.type = DATA_RECORD;
+
+    // write record descriptor for data record
+    if (write(lsvd->fd, &rd, sizeof(rd)) != sizeof(rd)) {
+        return -1;
+    }
+
+    // construct commit record
+    if ((cr.data_record_offset = lseek(lsvd->fd, 0, SEEK_CUR)) < 0) {
+        return -1;
+    }
+    cr.version = version;
+    cr.checksum = checksum(&dr, buf);
+
+    // write data record
+    if (write(lsvd->fd, &dr, sizeof(dr)) != sizeof(dr)) {
+        return -1;
+    }
+    // write data
+    if (write(lsvd->fd, buf, dr.length * SECTOR_SIZE) !=
+            dr.length * SECTOR_SIZE) {
+        return -1;
+    }
+
+    // construct record descriptor for commit record
+    // magic is already set
+    rd.type = COMMIT_RECORD;
+
+    // write record descriptor for commit record
+    if (write(lsvd->fd, &rd, sizeof(rd)) != sizeof(rd)) {
+        return -1;
+    }
+
+    // write commit record
+    if (write(lsvd->fd, &cr, sizeof(cr)) != sizeof(cr)) {
+        return -1;
+    }
+
+    // fsync
+    if (fsync(lsvd->fd) < 0) {
+        return -1;
+    }
+    // the data is now on disk!
+
+    // update sector_to_offset
+    for (i = 0; i < dr.length; ++i) {
+        *(lsvd->sector_to_offset + (dr.disk_offset + i)) =
+            cr.data_record_offset + sizeof(struct data_record) +
+            i * SECTOR_SIZE;
+    }
+    // bump the version
+    lsvd->version = version;
+
+    return 0;
+}
+
+// length and offset in sectors
+// version has to be current_version, otherwise returns error
+// returns 0 on OK, -1 on error
+int read_lsvd(struct lsvd_disk *lsvd, void *buf,
+        uint64_t length, uint64_t offset, uint64_t version) {
+    uint64_t file_offset;
+    uint64_t i;
+
+    if (version != lsvd->version) {
+        // we don't have this version, noooo!
+        return -1;
+    }
+
+    for (i = 0; i < length; ++i) {
+        file_offset = *(lsvd->sector_to_offset + offset + i);
+        if (file_offset == 0) {
+            // nobody wrote anything here. we can just return all zeros
+            if (memset(buf + i * SECTOR_SIZE, 0, SECTOR_SIZE) < 0) {
+                return -1;
+            }
+            continue;
+        }
+        if (pread(lsvd->fd, buf + i * SECTOR_SIZE, SECTOR_SIZE, file_offset)
+                != SECTOR_SIZE) {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+uint64_t get_version(struct lsvd_disk *lsvd) {
+    return lsvd->version;
 }
 
 int close_lsvd(struct lsvd_disk *lsvd) {

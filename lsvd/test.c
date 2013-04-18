@@ -1,27 +1,36 @@
+#include <stdio.h>
+#include <string.h>
+#include <errno.h>
+#include <assert.h>
+#include <stdlib.h>
 #include "lsvd.h"
-#define SIZE 2*1024*1024*1024LL // 2GB
+#define SIZE 2*1024*1024LL // 2MB
+
+char data[2*SECTOR_SIZE];
+char buffer[2*SECTOR_SIZE];
 
 int main() {
-    struct lsvd_disk *lsvd = 
-        create_lsvd("/scratch/test_disk", SIZE / SECTOR_SIZE);
+    int i;
+    struct lsvd_disk *lsvd;
 
-    if (lsvd == NULL) {
-        printf("Doesn't work!\n");
-    } else {
-        printf("Works!\n");
-        close_lsvd(lsvd);
+    for (i = 0; i < 2*SECTOR_SIZE; ++i) {
+        data[i] = 'a' + rand() % 26;
     }
+
+    lsvd = create_lsvd("/scratch/test_disk", SIZE / SECTOR_SIZE);
+    assert(lsvd != NULL);
+    assert(write_lsvd(lsvd, data, 2, 11, 1) == 0);
+    assert(close_lsvd(lsvd) == 0);
 
     lsvd = open_lsvd("/scratch/test_disk");
+    assert(lsvd != NULL);
+    assert(get_version(lsvd) == 1);
+    assert(lsvd->sblock->size == SIZE / SECTOR_SIZE);
+    assert(read_lsvd(lsvd, buffer, 2, 11, 1) == 0);
+    assert(strncmp(data, buffer, SECTOR_SIZE) == 0);
+    assert(close_lsvd(lsvd) == 0);
 
-    if (lsvd == NULL) {
-        printf("Doesn't work!\n");
-    } else {
-        printf("Works!\n");
-        printf("%lld %d %lld %X\n", lsvd->version, lsvd->sblock->uid,
-                lsvd->sblock->size, lsvd->sblock->magic);
-        close_lsvd(lsvd);
-    }
+    printf("All seems to work!\n");
 
     return 0;
 }
