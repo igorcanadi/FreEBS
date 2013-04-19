@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <pthread.h>
 
 #define SECTOR_SIZE 4096
 #define MAX_SIZE (1 << 40) // in sectors -> 512TB
@@ -23,6 +24,7 @@ struct lsvd_disk {
     uint64_t version;
     uint64_t *sector_to_offset;
     struct superblock *sblock;
+    pthread_mutex_t mutex;
 };
 
 struct lsvd_disk *create_lsvd(const char *pathname, uint64_t size);
