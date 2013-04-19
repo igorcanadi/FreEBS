@@ -20,7 +20,7 @@
 #include <net/sock.h>
 
 //#define FREEBS_DEVICE_SIZE (1073741824/512) /* bytes */
-#define FREEBS_DEVICE_SIZE (2048 * KERNEL_SECTOR_SIZE)
+#define FREEBS_DEVICE_SIZE (2048)
 /* So, total device size = 2048 * 512 bytes = 1024 KiB = 1 MiB */
 
 __be32 in_aton(const char *);
@@ -214,8 +214,11 @@ int freebs_receiver(void *data)
             blk_end_request_all(req->req, status); //res.status == 0 ? 0 : -1);
             kmem_cache_free(fbs_req_cache, req);
             //kfree(req);
+        } else {
+            break;
         }
     }
+    return -1;
 }
 
 int freebs_sender(void *data) 
@@ -229,7 +232,7 @@ int freebs_sender(void *data)
     sector_t sector_offset;
     sector_t sectors;
     u8 *buffer;
-    int ok, dir;
+    int dir, ok;
 
     sector_t sector_cnt;
 
@@ -258,12 +261,18 @@ int freebs_sender(void *data)
             hdr.offset = cpu_to_be32(fbs_req->sector);
             hdr.seq_num = cpu_to_be32(fbs_req->seq_num);
 
-
             freebs_get_data_sock(fbs_dev);
             ok = sizeof(hdr) == freebs_send(fbs_dev, fbs_dev->data.socket, &hdr, sizeof(hdr), 0);
+            if (!ok) {
+                printk(KERN_ERR "freebs: send failed");
+                continue;
+            }
             // TODO: do something about ok
 
             sector_offset = 0;
+            printk(KERN_DEBUG "freebs: Sector Offset: %lld; Length: %u bytes\n",
+                   (long long int) fbs_req->sector, fbs_req->size);
+            printk(KERN_DEBUG "sending data...");
             if (dir == WRITE) {
                 rq_for_each_segment(bv, req, iter) {
                     buffer = page_address(bv->bv_page) + bv->bv_offset;
@@ -273,10 +282,11 @@ int freebs_sender(void *data)
                                "This may lead to data truncation.\n",
                                bv->bv_len, KERNEL_SECTOR_SIZE);
                     sectors = bv->bv_len / KERNEL_SECTOR_SIZE;
-                    //printk(KERN_DEBUG "freebs: Sector Offset: %lld; Buffer: %p; Length: %d sectors\n",
-                           //(long long int) sector_offset, buffer, sectors);
-                    //printk(KERN_DEBUG "sending data...");
-                    freebs_send(fbs_dev, fbs_dev->data.socket, buffer, sectors * KERNEL_SECTOR_SIZE, 0);
+                    ok = sectors * KERNEL_SECTOR_SIZE == freebs_send(fbs_dev, fbs_dev->data.socket, buffer, sectors * KERNEL_SECTOR_SIZE, 0);
+                    if (!ok) {
+                        printk(KERN_ERR "freebs: send failed");
+                        break;
+                    }
                     sector_offset += sectors;
                 }
                 if (sector_offset != sector_cnt) 
