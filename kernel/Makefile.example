@@ -2,6 +2,7 @@
 ifeq ($(KERNELRELEASE),)
 
 	KERNEL_SOURCE := /home/paton/workspace/linux-source-3.5.0
+	#KERNEL_SOURCE := /usr/src/linux-source-3.2.0
 	PWD := $(shell pwd)
 default: module
 
@@ -10,8 +11,8 @@ module:
 
 .PHONY: install
 install: module
-	scp test.sh client.py freebs.ko testbed:~/
-	ssh testbed chmod +x ./test.sh ./client.py
+	scp test.sh server.py freebs.ko testbed:~/
+	ssh testbed chmod +x ./test.sh ./server.py
 
 .PHONY: test
 test: install
