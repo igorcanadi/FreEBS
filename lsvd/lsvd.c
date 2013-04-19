@@ -38,9 +38,20 @@ struct commit_record {
     uint64_t checksum;
 };
 
-uint64_t checksum(const struct data_record *dr, const char *data) {
-    // TODO
-    return 0;
+// fletcher's checksum
+uint64_t checksum(const struct data_record *dr, const void *data) {
+    int i;
+    uint32_t sum1 = 0, sum2 = 0;
+
+    for (i = 0; 4*i < sizeof(*dr); ++i) {
+        sum2 += sum1 += *(((uint32_t *)dr) + i);
+    }
+
+    for (i = 0; 4*i < dr->length * SECTOR_SIZE; ++i) {
+        sum2 += sum1 += *(((uint32_t *)data) + i);
+    }
+
+    return ((uint64_t)sum2 << 32) | (uint64_t)sum1;
 }
 
 // offset is the next free offset on the disk
@@ -179,8 +190,9 @@ int recover_lsvd_state(struct lsvd_disk *lsvd) {
     struct commit_record cr;
     struct data_record dr;
     char *data;
-    uint64_t dr_checksum;
     uint64_t i;
+    // just to eliminate warning, init value should never be used
+    uint64_t dr_checksum = 0;
 
     if (read_checkpoint(lsvd) < 0) {
         return -1;
