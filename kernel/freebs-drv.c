@@ -19,7 +19,8 @@
 #include <linux/slab.h>
 #include <net/sock.h>
 
-#define FREEBS_DEVICE_SIZE (1073741824/512) /* bytes */
+//#define FREEBS_DEVICE_SIZE (1073741824/512) /* bytes */
+#define FREEBS_DEVICE_SIZE (2048 * KERNEL_SECTOR_SIZE)
 /* So, total device size = 2048 * 512 bytes = 1024 KiB = 1 MiB */
 
 __be32 in_aton(const char *);

@@ -13,10 +13,11 @@ import (
     "net"
     "bytes"
     "encoding/binary"
+    "log"
 )
 
 // Constants
-const FBS_BLOCKSIZE uint32 = 4096   // Bytes in a block
+//const FBS_BLOCKSIZE uint32 = 512   // Bytes in a block
 const FBS_SECTORSIZE = C.FBS_SECTORSIZE
 
 // Message Structs
@@ -39,12 +40,12 @@ var volume []byte  // Global for now
 
 // Process that sends some request to VBD
 func main(){
-    volume = make([]byte, 1024*FBS_SECTORSIZE)    // 512KB tester volume
+    volume = make([]byte, 2048*FBS_SECTORSIZE, 2048*FBS_SECTORSIZE)    // 512KB tester volume
 
     // Listen to some port, can be changed
-    ln, err := net.Listen("tcp", ":8080")
+    ln, err := net.Listen("tcp", ":9000")
     if err != nil {
-        return  
+        return
     }
     for {
         conn, err := ln.Accept()
@@ -58,11 +59,11 @@ func main(){
 func handleConnection(conn net.Conn){
     // Fixed size buffer
     inbuf := make([]byte, 14)
+    var msg req_data;
 
     for {
         bytesRead, err := conn.Read(inbuf)
 
-        
         if bytesRead < 14 {
             continue;
         }
@@ -73,18 +74,18 @@ func handleConnection(conn net.Conn){
             return
         }
 
-        fmt.Printf("Server: % X\n\n", inbuf[0:bytesRead])
+        //fmt.Printf("Server: % X\n\n", inbuf[0:bytesRead])
 
-        inMessage := unpackMessage(inbuf, bytesRead)
+        unpackMessage(inbuf, bytesRead, &msg)
 
-        fmt.Printf("Server: % X\n\n", inMessage)
+        //fmt.Printf("Server: % X\n\n", msg)
 
         // Process message according to request type
-        switch inMessage.reqType {
+        switch msg.reqType {
         case 2: // Read
-            err = handleReadRequest(conn, inMessage)
+            err = handleReadRequest(conn, &msg)
         case 1: // Write   
-            err = handleWriteRequest(conn, inMessage)
+            err = handleWriteRequest(conn, &msg)
         default:
         }
     }
@@ -93,7 +94,7 @@ func handleConnection(conn net.Conn){
 
 
 // Helper functions
-func unpackMessage(buf []byte, bytesRead int) (msg req_data) {
+func unpackMessage(buf []byte, bytesRead int, msg *req_data) {
     // Translate raw bytes into our local input struct because
     // go doesn't allow packed structs.
     var dummy C.struct_fbs_header
@@ -108,75 +109,76 @@ func unpackMessage(buf []byte, bytesRead int) (msg req_data) {
 
 //    fmt.Println("Request: ", msg.reqType, msg.length, msg.offset, msg.seqNum)
 
-    return
 }
 
 // Send data
-func sendResponse(conn net.Conn, response resp_data) (bytesWritten int, err error){
+func sendResponse(conn net.Conn, response *resp_data, write bool) (bytesWritten int, err error){
     // Translate data from our local output struct to raw bytes
 //    outbuf := make([]byte, len(response.data) + 8)
 
     outbuf := new(bytes.Buffer)
 
     // Send header
-    binary.Write(outbuf, binary.BigEndian, response.status)
-    binary.Write(outbuf, binary.BigEndian, response.seqNum)
-    
-    if(len(response.data) > 0){
-        binary.Write(outbuf, binary.BigEndian, response.data)
+    binary.Write(conn, binary.BigEndian, response.status)
+    binary.Write(conn, binary.BigEndian, response.seqNum)
+
+    if (!write) {
+	    fmt.Printf("shouldn't see this")
+	    conn.Write(response.data)
     }
 
     bytesWritten, err = conn.Write(outbuf.Bytes())
 
-    return 
+    return
 }
 
-func handleReadRequest(conn net.Conn, request req_data) (err error){
-    var response resp_data
+func handleReadRequest(conn net.Conn, request *req_data) (err error){
+    var response *resp_data = new(resp_data)
 
     // volume[offset] is the data.
     response.status = 0
     response.seqNum = request.seqNum
-    response.data = make( []byte, request.length*FBS_SECTORSIZE )
-    
+    response.data = make( []byte, request.length )
+
     min := FBS_SECTORSIZE*request.offset
-    max := min + FBS_SECTORSIZE*request.length
+    max := min + request.length
 
-    fmt.Printf("Server: %d %d % X", min, max,volume[min:max])
-    
-    binary.Read(bytes.NewBuffer(volume[min:max]), binary.BigEndian, &response.data)
+    fmt.Printf("Read: %d %d\n", min, max)
 
-    _, err = sendResponse(conn, response)
+    //binary.Read(bytes.NewBuffer(volume[min:max]), binary.BigEndian, &response.data)
+    response.data = volume[min:max]
+
+    _, err = sendResponse(conn, response, false)
 
     return
 }
 
-func handleWriteRequest(conn net.Conn, request req_data) (err error){
-    var response resp_data
-    buffer := make([]byte, FBS_SECTORSIZE)
+func handleWriteRequest(conn net.Conn, request *req_data) (err error){
+    var response *resp_data = new(resp_data)
+    buffer := make([]byte, request.length)
 
     response.status = 0
     response.seqNum = request.seqNum
-    
-    var i uint32
-    var offset uint32
+
+    //var i int
+    var offset int
     // Read length * FBS_SECTORSIZE bytes from connectioni
 
-    for i, offset = 0, request.offset * FBS_SECTORSIZE; i < request.length; i, offset = i+1, offset + FBS_SECTORSIZE {
-        bytesRead, err := conn.Read(buffer)
-        if bytesRead <= 0 {
-            i--    
-            continue
-        }
-        if err != nil {
-            break    
-        }
-        fmt.Printf("Server: Bytes to write at offset %X: % X\n", offset, buffer)
-        copy(volume[offset:offset+FBS_SECTORSIZE], buffer)    
-        fmt.Printf("Server: Volume contents %X \n", volume[offset:offset+FBS_SECTORSIZE])
-    }
+    //for i, offset = 0, request.offset * FBS_SECTORSIZE; i < request.length; i, offset = i+1, offset + FBS_SECTORSIZE {
+	bytesRead, err := conn.Read(buffer)
+	if err != nil {
+		log.Fatal("error reading")
+	}
+	if bytesRead <= 0 {
+	    goto end
+	}
+	fmt.Printf("Write: Bytes to write at offset %X: % X\n", offset, buffer)
+	copy(volume[offset:], buffer)    
+	fmt.Printf("Write: Volume contents %X \n", volume[offset:offset+FBS_SECTORSIZE])
+    //}
 
-    _, err = sendResponse(conn, response)
+end:
+    _, err = sendResponse(conn, response, true)
 
     return 
 }
