@@ -1,18 +1,17 @@
+CC=g++
+CFLAGS=-O2 -I../lsvd
+LDFLAGS=
 
-all: clean daemon test
+all: clean sdaemon
 
-test: testApp.go
-	go build testApp.go
+sdaemon: sdaemon.cpp 
+	$(CC) $(CFLAGS) sdaemon.cpp -o sdaemon
 
-daemon: sdaemon.go
-	go build sdaemon.go
-
-install: daemon
+install: sdaemon
 	scp sdaemon testbed:~/
 
-run:
-	./sdaemon > slog.txt &	# Server
-	./testApp > clog.txt	# Client
+lsvd.o:
+	$(CC) $(CFLAGS) -c ../lsvd/lsvd.c
 
 clean:
-	rm -f testApp sdaemon *.txt
+	rm -f *.o test
