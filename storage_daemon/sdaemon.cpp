@@ -12,11 +12,9 @@
 #include "lsvd.h"
 #include "freebs.h"
 
-    
 #define FBS_SECTORSIZE      KERNEL_SECTOR_SIZE
 #define LSVD_SECTOR_SIZE    SECTOR_SIZE
 #define FBS_PORT            9000
-
 
 struct resp_data{
     __be16 status;
@@ -99,7 +97,8 @@ void handleConnection(int conn){
         header.offset = ntohs(buffer.offset);
         header.seq_num = ntohs(buffer.seq_num);
     
-        printf("Server Header: %x %x %x %x\n", header.command, header.len, header.offset, header.seq_num);
+        printf("Server Header: %x %x %x %x\n", header.command, header.len, 
+                header.offset, header.seq_num);
 
         switch (header.command){
             case FBS_READ:
@@ -132,28 +131,21 @@ int sendResponse(int conn, struct resp_data response, bool write) {
 
     printf("SendResponse: %X %X", sendHeader.status, sendHeader.seq_num);
 
-try{
     bytesWritten = send(conn, &sendHeader.status, sizeof(sendHeader.status), 0);  // Write header out
     if (bytesWritten < 0){ 
-        throw bytesWritten;    
+        return bytesWritten;    
     }
     bytesWritten = send(conn, &sendHeader.seq_num, sizeof(sendHeader.seq_num), 0);
     if (bytesWritten < 0){
-        throw bytesWritten;
+        return bytesWritten;
     }
 
     if(!write){
         bytesWritten = send(conn, response.data, response.numBytes, 0);
         if (bytesWritten < 0){
-            throw bytesWritten;
+            return bytesWritten;
         }
     }
-} catch(int e){
-    if (!write){
-        delete [] response.data;
-    }
-    perror("Errororor");
-} 
     return bytesWritten;
 
 }
@@ -175,6 +167,8 @@ int handleReadRequest(int conn, struct fbs_header &request){
     memcpy((void *) response.data, (void *) &volume[min], max - min + 1);   // Read volume data into data
     
     status = sendResponse(conn, response, false);
+
+    delete [] response.data;
 
     return status;
 }
