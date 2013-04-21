@@ -9,11 +9,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#include "lsvd.h"
-#include "freebs.h"
-
-#define FBS_SECTORSIZE      KERNEL_SECTOR_SIZE
-#define LSVD_SECTOR_SIZE    SECTOR_SIZE
+#include "replicamgr.h"
 #define FBS_PORT            9000
 
 struct resp_data{
