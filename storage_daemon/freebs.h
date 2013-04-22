@@ -19,6 +19,13 @@ struct fbs_header {
     __be32 seq_num;    // sequence number of this request
 } __packed;
 
+struct fbs_request {
+    unsigned short command;
+    unsigned int len;
+    unsigned int offset;
+    unsigned int seq_num;
+};
+
 enum fbs_status {
     SUCCESS = 0
 };

@@ -21,8 +21,8 @@ struct resp_data{
 
 // Prototypes
 void handleConnection(int conn);
-int handleReadRequest(int conn, struct fbs_header &request);
-int handleWriteRequest(int conn, struct fbs_header &request);
+int handleReadRequest(int conn, struct fbs_request &request);
+int handleWriteRequest(int conn, struct fbs_request &request);
     
 char *volume;
 int main(){
@@ -31,7 +31,7 @@ int main(){
     struct sockaddr_in serv_addr, cli_addr;
 
     // Initialize volume
-    volume = (char *) calloc(sizeof(char), (2048*FBS_SECTORSIZE)*(2048*FBS_SECTORSIZE));
+    volume = (char *) calloc((1048576*FBS_SECTORSIZE), sizeof(char));
 
     if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
         perror("ERROR opening socket");
@@ -73,6 +73,7 @@ int main(){
 // conn: fd for connection
 void handleConnection(int conn){
     struct fbs_header buffer;    // Only for header
+    struct fbs_request req;
     int bytesRead = 0;
     int status = 0;
     struct fbs_header header;
@@ -88,22 +89,22 @@ void handleConnection(int conn){
         }
         
         // Switch endianness?
-        header.command = ntohs(buffer.command);
-        header.len = ntohs(buffer.len);
-        header.offset = ntohs(buffer.offset);
-        header.seq_num = ntohs(buffer.seq_num);
+        req.command = ntohs(buffer.command);
+        req.len = ntohl(buffer.len);
+        req.offset = ntohl(buffer.offset);
+        req.seq_num = ntohl(buffer.seq_num);
     
-        printf("Server Header: %x %x %x %x\n", header.command, header.len, 
-                header.offset, header.seq_num);
+        printf("Server req: %u %u %u %u\n", req.command, req.len, 
+                req.offset, req.seq_num);
 
-        switch (header.command){
+        switch (req.command){
             case FBS_READ:
                 printf("Read\n");
-                status = handleReadRequest(conn, header);
+                status = handleReadRequest(conn, req);
                 break;
             case FBS_WRITE:
                 printf("Write\n");
-                status = handleWriteRequest(conn, header);
+                status = handleWriteRequest(conn, req);
                 break;
             default:
                 perror("ERROR Invalid command");
@@ -122,54 +123,56 @@ int sendResponse(int conn, struct resp_data response, bool write) {
     int bytesWritten = 0;
     struct fbs_response sendHeader;
 
-    sendHeader.status = htons(response.status);
-    sendHeader.seq_num = htons(response.seq_num);
+    sendHeader.status = response.status;
+    sendHeader.seq_num = response.seq_num;
 
-    printf("SendResponse: %X %X", sendHeader.status, sendHeader.seq_num);
+    printf("SendResponse: %u %u\n", ntohs(sendHeader.status), ntohl(sendHeader.seq_num));
 
     bytesWritten = send(conn, &sendHeader.status, sizeof(sendHeader.status), 0);  // Write header out
     if (bytesWritten < 0){ 
         return bytesWritten;    
     }
-    bytesWritten = send(conn, &sendHeader.seq_num, sizeof(sendHeader.seq_num), 0);
+    bytesWritten += send(conn, &sendHeader.seq_num, sizeof(sendHeader.seq_num), 0);
     if (bytesWritten < 0){
         return bytesWritten;
     }
 
     if(!write){
-        bytesWritten = send(conn, response.data, response.numBytes, 0);
+        bytesWritten += send(conn, response.data, response.numBytes, 0);
         if (bytesWritten < 0){
             return bytesWritten;
         }
     }
+    printf("Wrote %d bytes\n", bytesWritten);
     return bytesWritten;
-
 }
 
-int handleReadRequest(int conn, struct fbs_header &request){
+int handleReadRequest(int conn, struct fbs_request &request){
     int status = 0;
     struct resp_data response;
     int min, max;
 
-    printf("Read from %X", request.offset);
+    printf("Read from %u\n", request.offset);
 
-    response.status = SUCCESS;
-    response.seq_num = request.seq_num;
+    response.status = htons(SUCCESS);
+    response.seq_num = htonl(request.seq_num);
 
     min = FBS_SECTORSIZE * request.offset;  // Byteoffset
     max = min + request.len;                // Byteoffset
 
-    response.data = new char[max - min + 1]; // Allocate space
-    memcpy((void *) response.data, (void *) &volume[min], max - min + 1);   // Read volume data into data
+    //response.data = new char[max - min + 1]; // Allocate space
+    response.data = &volume[min];
+    response.numBytes = max - min;
+    //memcpy((void *) response.data, (void *) &volume[min], max - min + 1);   // Read volume data into data
     
     status = sendResponse(conn, response, false);
 
-    delete [] response.data;
+    //delete [] response.data;
 
     return status;
 }
 
-int handleWriteRequest(int conn, struct fbs_header &request){
+int handleWriteRequest(int conn, struct fbs_request &request){
     int status = 0;
     struct resp_data response;
         
@@ -177,10 +180,10 @@ int handleWriteRequest(int conn, struct fbs_header &request){
     response.seq_num = request.seq_num;
 
     // Read length * FBS_SECTORSIZE bytes from connection
-    for (int req_offset = 0, vol_offset = request.offset*FBS_SECTORSIZE;
+    printf("Server: Write to offset %u\n", request.offset * FBS_SECTORSIZE);
+    for (int req_offset = 0, vol_offset = request.offset * FBS_SECTORSIZE;
             req_offset < request.len;){
         status = recv(conn, &volume[vol_offset], request.len - req_offset, 0);
-        printf("Server: Write to offset %X\n", vol_offset);
         if (status < 0){
             continue;
         }
