@@ -327,7 +327,7 @@ cleanup_lsvd:
 // length and offset are in sectors
 // version has to be current_version+1, otherwise returns error
 // returns 0 on OK, -1 on error
-int write_lsvd(struct lsvd_disk *lsvd, const void *buf,
+int write_lsvd(struct lsvd_disk *lsvd, const char *buf,
         uint64_t length, uint64_t offset, uint64_t version) {
     uint64_t i;
     struct data_record dr;
@@ -422,7 +422,7 @@ unlock:
 // length and offset in sectors
 // version has to be current_version, otherwise returns error
 // returns 0 on OK, -1 on error
-int read_lsvd(struct lsvd_disk *lsvd, void *buf,
+int read_lsvd(struct lsvd_disk *lsvd, char *buf,
         uint64_t length, uint64_t offset, uint64_t version) {
     uint64_t file_offset;
     uint64_t i;
