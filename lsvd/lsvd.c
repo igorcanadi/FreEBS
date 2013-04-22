@@ -74,6 +74,11 @@ int dump_checkpoint(struct lsvd_disk *lsvd, uint64_t offset) {
         return -1;
     }
 
+    // we NEED to fsync after a checkpoint is written
+    if (fsync(lsvd->fd) < 0) {
+        return -1;
+    }
+
     return 0;
 }
 
@@ -395,11 +400,6 @@ int write_lsvd(struct lsvd_disk *lsvd, const char *buf,
         goto unlock;
     }
 
-    // fsync
-    if (fsync(lsvd->fd) < 0) {
-        ret = -1;
-        goto unlock;
-    }
     // the data is now on disk!
 
     // update sector_to_offset
@@ -456,6 +456,21 @@ int read_lsvd(struct lsvd_disk *lsvd, char *buf,
     }
 
 unlock:
+    if (pthread_mutex_unlock(&lsvd->mutex) < 0) {
+        return -1;
+    }
+
+    return ret;
+}
+
+int fsync_lsvd(struct lsvd_disk *lsvd) {
+    int ret = 0;
+    if (pthread_mutex_lock(&lsvd->mutex) < 0) {
+        return -1;
+    }
+
+    ret = fsync(lsvd->fd);
+
     if (pthread_mutex_unlock(&lsvd->mutex) < 0) {
         return -1;
     }
