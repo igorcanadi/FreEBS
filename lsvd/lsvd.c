@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <time.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -10,11 +11,23 @@
 
 #define COMMIT_RECORD 1
 #define DATA_RECORD 2
-#define SIZEOF_CHECKPOINT(SIZE) (2 * sizeof(uint64_t) + sizeof(uint64_t) * (SIZE))
+#define SIZEOF_STO(SIZE) (sizeof(uint64_t) * (SIZE))
+#define SIZEOF_CHECKPOINT(SIZE) (2 * sizeof(uint64_t) + \
+        SIZEOF_STO(SIZE))
+// NUM is 0 for first checkpoint and 1 for second checkpoint
+#define CHECKPOINT_OFFSET(NUM, SIZE) (sizeof(struct superblock) + \
+        NUM * SIZEOF_CHECKPOINT(SIZE))
 // where is the first byte written in a new disk
 // new disk starts with superblock and two checkpoint buffers
-#define NEW_DISK_OFFSET(SIZE) (sizeof(struct superblock) + \
-    2 * SIZEOF_CHECKPOINT(SIZE))
+#define NEW_DISK_OFFSET(SIZE) CHECKPOINT_OFFSET(2, SIZE)
+
+#define CHECKPOINT_BATCH_SIZE (8*1024*1024) // 8MB
+
+#define CHECKPOINT_INIT          (1 << 0)
+#define CHECKPOINT_FORCED        (1 << 1)
+#define CHECKPOINT_IN_PROGRESS   (1 << 2)
+#define CHECKPOINT_EXIT          (1 << 3)
+#define CHECKPOINT_FAILED        (1 << 4)
 
 struct record_descriptor {
     uint32_t magic;
@@ -56,9 +69,8 @@ uint64_t checksum(const struct data_record *dr, const void *data) {
 
 // offset is the next free offset on the disk
 // has to be called with mutex lock held
+// this function is called only when we are creating a disk
 int dump_checkpoint(struct lsvd_disk *lsvd, uint64_t offset) {
-    // TODO make this spread out
-
     // write offset
     if (write(lsvd->fd, &offset, sizeof(offset)) != sizeof(offset)) {
         return -1;
@@ -69,8 +81,8 @@ int dump_checkpoint(struct lsvd_disk *lsvd, uint64_t offset) {
         return -1;
     }
     // write sector_to_offset map
-    if (write(lsvd->fd, lsvd->sector_to_offset, sizeof(uint64_t) *
-            lsvd->sblock->size) != sizeof(uint64_t) * lsvd->sblock->size) {
+    if (write(lsvd->fd, lsvd->sector_to_offset, SIZEOF_STO(lsvd->sblock->size))
+            != SIZEOF_STO(lsvd->sblock->size)) {
         return -1;
     }
 
@@ -82,11 +94,203 @@ int dump_checkpoint(struct lsvd_disk *lsvd, uint64_t offset) {
     return 0;
 }
 
+// this is only called from inside the thread
+// need to hold the mutex!
+int do_checkpoint_thread(struct lsvd_disk *lsvd) {
+    uint64_t offset, current_offset;
+    size_t i, batch;
+    ssize_t bytes_written;
+
+    // figure out where we are going to write offset
+    // we're alternating
+    if (lsvd->sblock->last_checkpoint ==
+            CHECKPOINT_OFFSET(1, lsvd->sblock->size)) {
+        lsvd->sblock->last_checkpoint = offset =
+            CHECKPOINT_OFFSET(0, lsvd->sblock->size);
+    } else {
+        lsvd->sblock->last_checkpoint = offset =
+            CHECKPOINT_OFFSET(1, lsvd->sblock->size);
+    }
+
+    // where are we currently?
+    current_offset = lseek(lsvd->fd, 0, SEEK_CUR);
+
+    // write offset
+    if (pwrite(lsvd->fd, &current_offset, sizeof(current_offset), offset)
+            != sizeof(current_offset)) {
+        return -1;
+    }
+    offset += sizeof(current_offset);
+
+    // write version
+    if (pwrite(lsvd->fd, &lsvd->version, sizeof(lsvd->version), offset)
+            != sizeof(lsvd->version)) {
+        return -1;
+    }
+    offset += sizeof(lsvd->version);
+
+    // write sector_to_offset map
+    for (i = 0; i < SIZEOF_STO(lsvd->sblock->size); i += batch) {
+        // let the other kids play, too
+        if (pthread_mutex_unlock(&lsvd->mutex) < 0) {
+            return -1;
+        }
+
+        batch = CHECKPOINT_BATCH_SIZE;
+        if (batch + i > SIZEOF_STO(lsvd->sblock->size)) {
+            // final batch
+            batch = SIZEOF_STO(lsvd->sblock->size) - i;
+        }
+
+        // back to us!
+        if (pthread_mutex_lock(&lsvd->mutex) < 0) {
+            return -1;
+        }
+
+        bytes_written = pwrite(lsvd->fd, (void *)lsvd->sector_to_offset + i,
+                batch, offset);
+        if (bytes_written < 0) {
+            return -1;
+        }
+        offset += bytes_written;
+    }
+
+    // let the other kids play, too
+    if (pthread_mutex_unlock(&lsvd->mutex) < 0) {
+        return -1;
+    }
+    // back to us!
+    if (pthread_mutex_lock(&lsvd->mutex) < 0) {
+        return -1;
+    }
+
+    // dump checkpoint to disk. this needs to happen if we want consistency
+    if (fsync(lsvd->fd) < 0) {
+        return -1;
+    }
+
+    // write superblock
+    // lsvd->sblock->last_checkpoint is already set to the right value earlier
+    if (pwrite(lsvd->fd, lsvd->sblock, sizeof(struct superblock), 0) !=
+            sizeof(struct superblock)) {
+        // well we failed writing the superblock. who knows what that means
+        return -1;
+    }
+
+    return 0;
+}
+
+void *checkpoint_thread(void *lsvd_v) {
+    struct timespec ts;
+    int ret = 0;
+    struct lsvd_disk *lsvd = (struct lsvd_disk *)lsvd_v;
+
+    if (pthread_mutex_lock(&lsvd->mutex) < 0) {
+        lsvd->checkpoint_state |= CHECKPOINT_FAILED;
+        pthread_exit(NULL);
+    }
+
+    // set initialized flag - we have the thread running!
+    lsvd->checkpoint_state |= CHECKPOINT_INIT;
+
+    while (1) {
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += CHECKPOINT_FREQUENCY;
+
+        // if timeout isn't done (ret will not be zero when timeout is done)
+        // if checkpoint is not forced
+        while (ret == 0 && !(lsvd->checkpoint_state & CHECKPOINT_FORCED)) {
+            if (lsvd->checkpoint_state & CHECKPOINT_EXIT) {
+                // exit has been initiated
+                pthread_mutex_unlock(&lsvd->mutex);
+                pthread_exit(NULL);
+            }
+            ret = pthread_cond_timedwait(&lsvd->checkpoint_cond,
+                    &lsvd->mutex, &ts);
+        }
+
+        // clear forced flag
+        lsvd->checkpoint_state &= ~CHECKPOINT_FORCED;
+        // set in progress flag
+        lsvd->checkpoint_state |= CHECKPOINT_IN_PROGRESS;
+
+        // CHECKPOINT
+        if (do_checkpoint_thread(lsvd) < 0) {
+            // set failed flag
+            lsvd->checkpoint_state |= CHECKPOINT_FAILED;
+        }
+
+        // clear in progress flag
+        lsvd->checkpoint_state &= ~CHECKPOINT_IN_PROGRESS;
+    }
+}
+
+// has to be called with mutex lock held
+int start_checkpoint_thread(struct lsvd_disk *lsvd) {
+    if (pthread_cond_init(&lsvd->checkpoint_cond, NULL) != 0) {
+        return -1;
+    }
+
+    lsvd->checkpoint_state = 0;
+
+    if (pthread_create(&lsvd->checkpoint_t, NULL, checkpoint_thread,
+                (void *)lsvd) != 0) {
+        pthread_cond_destroy(&lsvd->checkpoint_cond);
+        return -1;
+    }
+    return 0;
+}
+
+// has to be called with mutex lock held
+int force_checkpoint(struct lsvd_disk *lsvd) {
+    // force checkpoint flag
+    lsvd->checkpoint_state |= CHECKPOINT_FORCED;
+
+    // wake up the thread
+    if (pthread_cond_signal(&lsvd->checkpoint_cond) != 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+// has to be called with mutex lock held
+// returns only after the checkpoint is done
+int stop_checkpoint_thread(struct lsvd_disk *lsvd) {
+    // initiated exit flag
+    lsvd->checkpoint_state |= CHECKPOINT_EXIT;
+
+    if (pthread_cond_signal(&lsvd->checkpoint_cond) != 0) {
+        return -1;
+    }
+
+    if (pthread_mutex_unlock(&lsvd->mutex) < 0) {
+        return -1;
+    }
+
+    if (pthread_join(lsvd->checkpoint_t, NULL) != 0) {
+        return -1;
+    }
+
+    if (pthread_mutex_lock(&lsvd->mutex) < 0) {
+        return -1;
+    }
+
+    // clean up
+    pthread_cond_destroy(&lsvd->checkpoint_cond);
+
+    return 0;
+}
+
 // reads from current fd pointer
 // at the end, the pointer is at next un-checkpointed block
 // has to be called with mutex lock held
 int read_checkpoint(struct lsvd_disk *lsvd) {
     uint64_t offset;
+
+    if (lseek(lsvd->fd, lsvd->sblock->last_checkpoint, SEEK_SET) < 0) {
+        return -1;
+    }
 
     // read offset
     if (read(lsvd->fd, &offset, sizeof(offset)) != sizeof(offset)) {
@@ -103,7 +307,6 @@ int read_checkpoint(struct lsvd_disk *lsvd) {
             lsvd->sblock->size) {
         return -1;
     }
-
 
     // seek to first un-checkpointed block
     if (lseek(lsvd->fd, offset, SEEK_SET) < 0) {
@@ -143,7 +346,7 @@ struct lsvd_disk *create_lsvd(const char *pathname, uint64_t size) {
     // construct superblock
     lsvd->sblock->uid = rand(); // unique ID
     lsvd->sblock->size = size;
-    lsvd->sblock->last_checkpoint = sizeof(struct superblock);
+    lsvd->sblock->last_checkpoint = CHECKPOINT_OFFSET(0, lsvd->sblock->size);
     lsvd->sblock->magic = MAGIC_NUMBER;
     // write the superblock
     if (write(lsvd->fd, lsvd->sblock, sizeof(struct superblock)) !=
@@ -168,6 +371,10 @@ struct lsvd_disk *create_lsvd(const char *pathname, uint64_t size) {
     // we need two checkpoints, the other one is used for writing out a new
     // checkpoint without blocking
     if (dump_checkpoint(lsvd, NEW_DISK_OFFSET(lsvd->sblock->size)) < 0) {
+        goto cleanup_sto;
+    }
+
+    if (start_checkpoint_thread(lsvd) < 0) {
         goto cleanup_sto;
     }
 
@@ -202,7 +409,6 @@ int recover_lsvd_state(struct lsvd_disk *lsvd) {
     if (read_checkpoint(lsvd) < 0) {
         return -1;
     }
-
 
     while (1) {
         // figure out where we are
@@ -312,6 +518,10 @@ struct lsvd_disk *open_lsvd(const char *pathname) {
     }
 
     if (recover_lsvd_state(lsvd) < 0) {
+        goto cleanup_so;
+    }
+
+    if (start_checkpoint_thread(lsvd) < 0) {
         goto cleanup_so;
     }
 
@@ -487,7 +697,13 @@ uint64_t get_version(struct lsvd_disk *lsvd) {
 
 int close_lsvd(struct lsvd_disk *lsvd) {
     int ret;
-    // TODO maybe do checkpoint here?
+    if (pthread_mutex_lock(&lsvd->mutex) < 0) {
+        return -1;
+    }
+    force_checkpoint(lsvd);
+    stop_checkpoint_thread(lsvd);
+    pthread_mutex_destroy(&lsvd->mutex);
+
     ret = close(lsvd->fd);
     free(lsvd->sblock);
     free(lsvd->sector_to_offset);
