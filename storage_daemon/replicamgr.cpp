@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include "replicamgr.h"
 
-#define REPLICA_SIZE (1024*1024*1024*1024)  // 1GB
+#define REPLICA_SIZE (1024*1024*1024)  // 1GB
 
 ReplicaManager::ReplicaManager(unsigned n, unsigned r, unsigned w){
     if (n == 0 || (r + w) <= n){
