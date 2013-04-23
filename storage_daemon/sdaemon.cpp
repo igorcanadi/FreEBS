@@ -93,17 +93,15 @@ void handleConnection(int conn){
         req.len = ntohl(buffer.len);
         req.offset = ntohl(buffer.offset);
         req.seq_num = ntohl(buffer.seq_num);
-    
+#if DEBUG    
         printf("Server req: %u %u %u %u\n", req.command, req.len, 
                 req.offset, req.seq_num);
-
+#endif
         switch (req.command){
             case FBS_READ:
-                printf("Read\n");
                 status = handleReadRequest(conn, req);
                 break;
             case FBS_WRITE:
-                printf("Write\n");
                 status = handleWriteRequest(conn, req);
                 break;
             default:
@@ -125,9 +123,9 @@ int sendResponse(int conn, struct resp_data response, bool write) {
 
     sendHeader.status = response.status;
     sendHeader.seq_num = response.seq_num;
-
+#if DEBUG
     printf("SendResponse: %u %u\n", ntohs(sendHeader.status), ntohl(sendHeader.seq_num));
-
+#endif
     bytesWritten = send(conn, &sendHeader.status, sizeof(sendHeader.status), 0);  // Write header out
     if (bytesWritten < 0){ 
         return bytesWritten;    
@@ -143,7 +141,9 @@ int sendResponse(int conn, struct resp_data response, bool write) {
             return bytesWritten;
         }
     }
+#if DEBUG
     printf("Wrote %d bytes\n", bytesWritten);
+#endif
     return bytesWritten;
 }
 
@@ -151,9 +151,9 @@ int handleReadRequest(int conn, struct fbs_request &request){
     int status = 0;
     struct resp_data response;
     int min, max;
-
+#if DEBUG
     printf("Read from %u\n", request.offset);
-
+#endif
     response.status = htons(SUCCESS);
     response.seq_num = htonl(request.seq_num);
 
@@ -176,11 +176,13 @@ int handleWriteRequest(int conn, struct fbs_request &request){
     int status = 0;
     struct resp_data response;
         
-    response.status = SUCCESS;
-    response.seq_num = request.seq_num;
+    response.status = htons(SUCCESS);
+    response.seq_num = htonl(request.seq_num);
 
     // Read length * FBS_SECTORSIZE bytes from connection
+#if DEBUG
     printf("Server: Write to offset %u\n", request.offset * FBS_SECTORSIZE);
+#endif
     for (int req_offset = 0, vol_offset = request.offset * FBS_SECTORSIZE;
             req_offset < request.len;){
         status = recv(conn, &volume[vol_offset], request.len - req_offset, 0);
