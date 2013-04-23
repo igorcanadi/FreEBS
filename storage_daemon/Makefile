@@ -1,5 +1,5 @@
 CC=g++
-CFLAGS=-O2 -I../lsvd
+CFLAGS=-g -O2 -I../lsvd -DDEBUG
 LDFLAGS=
 
 all: clean sdaemon
@@ -9,6 +9,9 @@ sdaemon: replicamgr.o lsvd.o sdaemon.cpp
 
 install: sdaemon
 	scp sdaemon testbed:~/
+
+test: replicamgr.o lsvd.o replica_test.cpp
+	$(CC) $(CFLAGS) lsvd.o replicamgr.o replica_test.cpp -o replica_test
 
 replicamgr.o: replicamgr.h replicamgr.cpp
 	$(CC) $(CFLAGS) -c replicamgr.cpp

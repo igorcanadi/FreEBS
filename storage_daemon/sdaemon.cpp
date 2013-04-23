@@ -24,14 +24,17 @@ void handleConnection(int conn);
 int handleReadRequest(int conn, struct fbs_request &request);
 int handleWriteRequest(int conn, struct fbs_request &request);
     
-char *volume;
-int main(){
+ReplicaManager *rmgr;
+
+int main(int argc, char *argv[]){
     int sockfd, newsockfd;
     socklen_t clilen;
     struct sockaddr_in serv_addr, cli_addr;
 
-    // Initialize volume
-    volume = (char *) calloc((1048576*FBS_SECTORSIZE), sizeof(char));
+    rmgr = new ReplicaManager(1, 1, 1);
+    
+    rmgr->create("/tmp/tmp.dsk", 1048576*FBS_SECTORSIZE);
+    rmgr->open("/tmp/tmp.dsk");
 
     if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
         perror("ERROR opening socket");
@@ -64,7 +67,6 @@ int main(){
         handleConnection(newsockfd); // One connection at a time
     }
 
-    free(volume);
     close(sockfd);
 
     return 0;
@@ -93,7 +95,7 @@ void handleConnection(int conn){
         req.len = ntohl(buffer.len);
         req.offset = ntohl(buffer.offset);
         req.seq_num = ntohl(buffer.seq_num);
-#if DEBUG    
+#ifdef DEBUG    
         printf("Server req: %u %u %u %u\n", req.command, req.len, 
                 req.offset, req.seq_num);
 #endif
@@ -123,7 +125,7 @@ int sendResponse(int conn, struct resp_data response, bool write) {
 
     sendHeader.status = response.status;
     sendHeader.seq_num = response.seq_num;
-#if DEBUG
+#ifdef DEBUG
     printf("SendResponse: %u %u\n", ntohs(sendHeader.status), ntohl(sendHeader.seq_num));
 #endif
     bytesWritten = send(conn, &sendHeader.status, sizeof(sendHeader.status), 0);  // Write header out
@@ -141,7 +143,7 @@ int sendResponse(int conn, struct resp_data response, bool write) {
             return bytesWritten;
         }
     }
-#if DEBUG
+#ifdef DEBUG
     printf("Wrote %d bytes\n", bytesWritten);
 #endif
     return bytesWritten;
@@ -151,7 +153,7 @@ int handleReadRequest(int conn, struct fbs_request &request){
     int status = 0;
     struct resp_data response;
     int min, max;
-#if DEBUG
+#ifdef DEBUG
     printf("Read from %u\n", request.offset);
 #endif
     response.status = htons(SUCCESS);
@@ -160,14 +162,16 @@ int handleReadRequest(int conn, struct fbs_request &request){
     min = FBS_SECTORSIZE * request.offset;  // Byteoffset
     max = min + request.len;                // Byteoffset
 
-    //response.data = new char[max - min + 1]; // Allocate space
-    response.data = &volume[min];
+    response.data = new char[max - min + 1]; // Allocate space
+    if ((status = rmgr->read(request.offset, request.len / FBS_SECTORSIZE, 
+                    request.seq_num, response.data)) < 0){
+        return status;
+    }
     response.numBytes = max - min;
-    //memcpy((void *) response.data, (void *) &volume[min], max - min + 1);   // Read volume data into data
     
     status = sendResponse(conn, response, false);
 
-    //delete [] response.data;
+    delete [] response.data;
 
     return status;
 }
@@ -176,22 +180,28 @@ int handleWriteRequest(int conn, struct fbs_request &request){
     int status = 0;
     struct resp_data response;
         
+    char *buffer;
+
     response.status = htons(SUCCESS);
     response.seq_num = htonl(request.seq_num);
 
-    // Read length * FBS_SECTORSIZE bytes from connection
-#if DEBUG
+    buffer = new char[request.len];
+#ifdef DEBUG
     printf("Server: Write to offset %u\n", request.offset * FBS_SECTORSIZE);
 #endif
-    for (int req_offset = 0, vol_offset = request.offset * FBS_SECTORSIZE;
-            req_offset < request.len;){
-        status = recv(conn, &volume[vol_offset], request.len - req_offset, 0);
+    for (int req_offset = 0; req_offset < request.len;){
+        status = recv(conn, &buffer[req_offset], request.len - req_offset, 0);
         if (status < 0){
             continue;
         }
         req_offset += status;
-        vol_offset += status;
     }
+
+    if ((status = rmgr->write(request.offset, request.len / FBS_SECTORSIZE, 
+                    request.seq_num, buffer) < 0)){
+        return status;
+    }
+
 
     status = sendResponse(conn, response, true);
 
