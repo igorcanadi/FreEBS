@@ -30,12 +30,35 @@ int main(int argc, char *argv[]){
     int sockfd, newsockfd;
     socklen_t clilen;
     struct sockaddr_in serv_addr, cli_addr;
+    int status = 0;
 
     rmgr = new ReplicaManager(1, 1, 1);
-    
-    rmgr->create("/tmp/tmp.dsk", 1048576*FBS_SECTORSIZE/LSVD_SECTORSIZE);
-    rmgr->open("/tmp/tmp.dsk");
 
+    if(argc != 3){
+        printf("Usage: command [flags]\n");
+        printf("-c PATH\tcreate lsvd_disk with pathname PATH\n");
+        printf("-o PATH\topen existing lsvd_disk with pathname PATH\n");
+        exit(1);
+    }    
+
+    switch(argv[1][1]){
+        case 'c':
+            printf("Path: %s\n", argv[2]);
+            status = rmgr->create(argv[2], 1048576*FBS_SECTORSIZE/LSVD_SECTORSIZE);
+            break;
+        case 'o':
+            printf("Path: %s\n", argv[2]);
+            status = rmgr->open(argv[2]);
+            break;
+        default:
+            printf("Invalid option \n");
+            exit(1);
+    }
+
+    if (status < 0){
+        perror("LSVD open error\n");
+        exit(1);
+    }
     if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
         perror("ERROR opening socket");
         exit(1);
@@ -202,6 +225,7 @@ int handleWriteRequest(int conn, struct fbs_request &request){
         return status;
     }
 
+    delete [] buffer;
 
     status = sendResponse(conn, response, true);
 

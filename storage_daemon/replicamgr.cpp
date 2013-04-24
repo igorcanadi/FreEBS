@@ -27,7 +27,6 @@ ReplicaManager::~ReplicaManager(){
  * */
 int ReplicaManager::create(const char *pathname, uint64_t size){
     local = create_lsvd(pathname, size);
-    printf("Version: %lu\n", get_version(local));
 }   
 
 /*
@@ -70,8 +69,8 @@ int ReplicaManager::read(uint64_t offset, uint64_t length, uint64_t seq_num, cha
     version = get_version(local);
 
 #ifdef DEBUG
-    printf("READ: version:%lu fbs_min:%lu fbs_max:%lu lsvd_min:%lu \
-            lsvd_max:%lu\n", version, fbs_min, fbs_max, lsvd_min, lsvd_max);
+    printf("READ: fbs_min:%lu fbs_max:%lu lsvd_min:%lu lsvd_max:%lu\n", 
+            fbs_min, fbs_max, lsvd_min, lsvd_max);
 #endif
     
     // TODO: make this part of some kind of buffer pool so we don't alloc all the time
@@ -83,7 +82,7 @@ int ReplicaManager::read(uint64_t offset, uint64_t length, uint64_t seq_num, cha
 
     memcpy(buffer, &cache[fbs_min-lsvd_min], fbs_max-fbs_min);
     
-//    delete cache;
+    delete cache;
 
     return status;
 }
@@ -113,8 +112,8 @@ int ReplicaManager::write(uint64_t offset, uint64_t length, uint64_t seq_num, co
 
     version = get_version(local);
 #ifdef DEBUG
-    printf("WRITE version:%lu fbs_min:%lu fbs_max:%lu lsvd_min:%lu \
-            lsvd_max:%lu\n", version, fbs_min, fbs_max, lsvd_min, lsvd_max);
+    printf("WRITE fbs_min:%lu fbs_max:%lu lsvd_min:%lu lsvd_max:%lu\n", 
+            fbs_min, fbs_max, lsvd_min, lsvd_max);
 #endif
 
     // Aligned write
@@ -149,7 +148,7 @@ int ReplicaManager::write(uint64_t offset, uint64_t length, uint64_t seq_num, co
         }
         
         memcpy(&cache[cache_off+copy_len], &buffer[buff_off + copy_len], 
-                fbs_max - fbs_min);
+                fbs_max-fbs_min-copy_len-buff_off);
 
         // Unaligned at the high end of memory
         if (lsvd_max != fbs_max && lsvd_len > 1){
@@ -168,7 +167,7 @@ int ReplicaManager::write(uint64_t offset, uint64_t length, uint64_t seq_num, co
             memcpy(&cache[cache_off], &buffer[buff_off], copy_len);
         }
         status = write_lsvd(local, cache, lsvd_len, lsvd_off, seq_num);
-//        delete cache;
+        delete [] cache;
     }
 
     if (status < 0){
