@@ -2,37 +2,23 @@
 #define  _FREEBS_H
 
 #include <linux/types.h>
+#include "msgs.h"
 
 #define KERNEL_SECTOR_SIZE 512
 #define __packed __attribute__((packed))
-
-
-enum fbs_req_t {
-    FBS_WRITE = 1,
-    FBS_READ
-};
-
-struct fbs_header {
-    __be16 command;    // fbs_req_t
-    __be32 len;        // length in bytes
-    __be32 offset;     // offset in virtual disk in sectors
-    __be32 seq_num;    // sequence number of this request
-} __packed;
 
 struct fbs_request {
     unsigned short command;
     unsigned int len;
     unsigned int offset;
     unsigned int seq_num;
+    unsigned int req_num;
 };
 
-enum fbs_status {
-    SUCCESS = 0
+struct resp_data {
+    struct fbs_response header;
+    char *data;
+    unsigned numBytes;
 };
-
-struct fbs_response {
-    __be16  status;   // 0 on success -- see enum fbs_response
-    __be32  seq_num;
-} __packed;
 
 #endif    

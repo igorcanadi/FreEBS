@@ -26,6 +26,7 @@
 __be32 in_aton(const char *);
 
 #include "freebs.h"
+#include "msgs.h"
 
 #define FREEBS_FIRST_MINOR 0
 #define FREEBS_MINOR_CNT 16
@@ -125,7 +126,7 @@ void enqueue_request(struct list_head *new, struct list_head *queue, struct mute
  * Gets the fbs_request from the queue with the seq_num provided. Removes it from
  * the queue and returns it.
  */
-struct freebs_request *get_request(struct list_head *queue, struct mutex *mutex, int seq_num) {
+struct freebs_request *get_request(struct list_head *queue, struct mutex *mutex, int req_num) {
     struct list_head *pos;
     struct freebs_request *req = NULL;
     bool found = false;
@@ -133,7 +134,7 @@ struct freebs_request *get_request(struct list_head *queue, struct mutex *mutex,
     mutex_lock(mutex);
     list_for_each(pos, queue) {
         req = list_entry(pos, struct freebs_request, queue);
-        if (req->seq_num == seq_num) {
+        if (req->req_num == req_num) {
             list_del(&req->queue);
             found = true;
             break;
@@ -186,13 +187,13 @@ int freebs_receiver(void *data)
     struct freebs_request *req;
     //struct socket *sock = fbs_dev->data.socket;
     int rv, status;
-    uint32_t seq_num;
+    uint32_t req_num;
     
     for (;;) {
         rv = fbs_recv(fbs_dev, &res, sizeof(struct fbs_response));
         if (rv == sizeof(struct fbs_response)) {
-            seq_num = be32_to_cpu(res.seq_num);
-            req = get_request(&fbs_dev->in_flight, &fbs_dev->in_flight_l, seq_num);
+            req_num = be32_to_cpu(res.req_num);
+            req = get_request(&fbs_dev->in_flight, &fbs_dev->in_flight_l, req_num);
             if (!req) {
                 //pr_err("freebs: unexpected request completion! skipping...");
                 continue;
@@ -260,6 +261,7 @@ int freebs_sender(void *data)
             hdr.len = cpu_to_be32(fbs_req->size);
             hdr.offset = cpu_to_be32(fbs_req->sector);
             hdr.seq_num = cpu_to_be32(fbs_req->seq_num);
+            hdr.req_num = cpu_to_be32(fbs_req->req_num);
 
             freebs_get_data_sock(fbs_dev);
             ok = sizeof(hdr) == freebs_send(fbs_dev, fbs_dev->data.socket, &hdr, sizeof(hdr), 0);
@@ -318,7 +320,11 @@ static int fbs_transfer(struct request *req)
     fbs_req->sector = start_sector;
     fbs_req->size = sector_cnt * KERNEL_SECTOR_SIZE;
     fbs_req->req = req;
-    fbs_req->seq_num = atomic_add_return(1, &fbs_dev->packet_seq);
+    if (rq_data_dir(req) == WRITE)
+        fbs_req->seq_num = atomic_add_return(1, &fbs_dev->packet_seq);
+    else
+        fbs_req->seq_num = atomic_read(&fbs_dev->packet_seq);
+    fbs_req->req_num = atomic_add_return(1, &fbs_dev->req_num);
     enqueue_request(&fbs_req->queue, &fbs_dev->rq_queue, &fbs_dev->rq_mutex);
     up(&fbs_dev->rq_queue_sem);
 

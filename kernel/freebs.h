@@ -20,7 +20,8 @@ struct freebs_request {
     struct freebs_device *fbs_dev;
     sector_t sector;      // in sectors
     unsigned int size;    // in bytes
-    int seq_num;
+    unsigned int seq_num;
+    unsigned int req_num;
     struct request *req;
     struct list_head    queue;
 };
@@ -82,6 +83,7 @@ struct freebs_device {
     struct gendisk *fbs_disk;
     struct freebs_socket data;
     atomic_t            packet_seq;
+    atomic_t            req_num;
     struct list_head    in_flight;    /* requests that have been sent to replica
                                          manager but have not been completed */
     struct mutex        in_flight_l;
@@ -89,27 +91,6 @@ struct freebs_device {
     struct mutex        rq_mutex;
     struct semaphore    rq_queue_sem;
 };
-
-enum fbs_req_t {
-    FBS_WRITE = 1,
-    FBS_READ
-};
-
-struct fbs_header {
-    __be16 command;    // fbs_req_t
-    __be32 len;        // length in bytes
-    __be32 offset;     // offset in virtual disk in sectors
-    __be32 seq_num;    // sequence number of this request
-} __packed;
-
-enum fbs_status {
-    SUCCESS = 0
-};
-
-struct fbs_response {
-    __be16  status;   // 0 on success -- see enum fbs_response
-    __be32  seq_num;
-} __packed;
 
 #define __packed __attribute__((packed))
 

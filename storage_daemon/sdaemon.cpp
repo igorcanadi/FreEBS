@@ -12,13 +12,6 @@
 #include "replicamgr.h"
 #define FBS_PORT            9000
 
-struct resp_data{
-    __be16 status;
-    __be32 seq_num;
-    char *data;
-    unsigned numBytes;
-};
-
 // Prototypes
 void handleConnection(int conn);
 int handleReadRequest(int conn, struct fbs_request &request);
@@ -118,9 +111,10 @@ void handleConnection(int conn){
         req.len = ntohl(buffer.len);
         req.offset = ntohl(buffer.offset);
         req.seq_num = ntohl(buffer.seq_num);
+        req.req_num = ntohl(buffer.req_num);
 #ifdef DEBUG    
-        printf("Server req: %u %u %u %u\n", req.command, req.len, 
-                req.offset, req.seq_num);
+        printf("Server req: %u %u %u %u %u\n", req.command, req.len, 
+                req.offset, req.seq_num, req.req_num);
 #endif
         switch (req.command){
             case FBS_READ:
@@ -144,18 +138,11 @@ void handleConnection(int conn){
 // data
 int sendResponse(int conn, struct resp_data response, bool write) {
     int bytesWritten = 0;
-    struct fbs_response sendHeader;
 
-    sendHeader.status = response.status;
-    sendHeader.seq_num = response.seq_num;
 #ifdef DEBUG
-    printf("SendResponse: %u %u\n", ntohs(sendHeader.status), ntohl(sendHeader.seq_num));
+    printf("SendResponse: %u %u\n", ntohs(response.header.status), ntohl(response.header.req_num));
 #endif
-    bytesWritten = send(conn, &sendHeader.status, sizeof(sendHeader.status), 0);  // Write header out
-    if (bytesWritten < 0){ 
-        return bytesWritten;    
-    }
-    bytesWritten += send(conn, &sendHeader.seq_num, sizeof(sendHeader.seq_num), 0);
+    bytesWritten = send(conn, &response.header, sizeof(response.header), 0);
     if (bytesWritten < 0){
         return bytesWritten;
     }
@@ -179,8 +166,8 @@ int handleReadRequest(int conn, struct fbs_request &request){
 #ifdef DEBUG
     printf("Read from %u\n", request.offset);
 #endif
-    response.status = htons(SUCCESS);
-    response.seq_num = htonl(request.seq_num);
+    response.header.status = htons(SUCCESS);
+    response.header.req_num = htonl(request.req_num);
 
     min = FBS_SECTORSIZE * request.offset;  // Byteoffset
     max = min + request.len;                // Byteoffset
@@ -205,8 +192,8 @@ int handleWriteRequest(int conn, struct fbs_request &request){
         
     char *buffer;
 
-    response.status = htons(SUCCESS);
-    response.seq_num = htonl(request.seq_num);
+    response.header.status = htons(SUCCESS);
+    response.header.req_num = htonl(request.req_num);
 
     buffer = new char[request.len];
 #ifdef DEBUG
