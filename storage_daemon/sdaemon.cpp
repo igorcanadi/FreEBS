@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <signal.h>
 
 #include "replicamgr.h"
 #define FBS_PORT            9000
@@ -16,6 +17,7 @@
 void handleConnection(int conn);
 int handleReadRequest(int conn, struct fbs_request &request);
 int handleWriteRequest(int conn, struct fbs_request &request);
+void handleExit(int sig);
     
 ReplicaManager *rmgr;
 
@@ -24,6 +26,15 @@ int main(int argc, char *argv[]){
     socklen_t clilen;
     struct sockaddr_in serv_addr, cli_addr;
     int status = 0;
+    struct sigaction act;
+ 
+    act.sa_handler = handleExit;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = 0;
+    sigaction(SIGINT, &act, NULL);
+    sigaction(SIGTERM, &act, NULL);
+    sigaction(SIGQUIT, &act, NULL);
+    sigaction(SIGABRT, &act, NULL);
 
     rmgr = new ReplicaManager(1, 1, 1);
 
@@ -85,6 +96,7 @@ int main(int argc, char *argv[]){
 
     close(sockfd);
 
+    delete rmgr;
     return 0;
 }
 
@@ -219,3 +231,13 @@ int handleWriteRequest(int conn, struct fbs_request &request){
     return status;
 }
 
+void handleExit(int sig){
+    if (sig & (SIGINT | SIGTERM | SIGQUIT | SIGABRT)){
+        printf("Exiting\n");
+	if(rmgr != NULL){
+            delete rmgr;
+            rmgr = NULL;
+            exit(1);
+        }
+    }
+}
