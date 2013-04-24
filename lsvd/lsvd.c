@@ -153,7 +153,7 @@ struct lsvd_disk *create_lsvd(const char *pathname, uint64_t size) {
 
     // initialize sector to offset map
     lsvd->sector_to_offset =
-        (uint64_t *) malloc(sizeof(uint64_t) * lsvd->sblock->size);
+        (uint64_t *) calloc(sizeof(uint64_t), lsvd->sblock->size);
     if (lsvd->sector_to_offset == NULL) {
         goto cleanup_file;
     }
@@ -230,6 +230,8 @@ int recover_lsvd_state(struct lsvd_disk *lsvd) {
             }
 
             dr_checksum = checksum(&dr, data);
+
+            free(data);
         } else if (rd.type == COMMIT_RECORD) {
             // we're assuming DATA_RECORD came before this and there
             // are meaningful values in dr and dr_checksum
