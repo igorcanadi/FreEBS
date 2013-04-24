@@ -1,8 +1,8 @@
 CC=g++
-CFLAGS=-g -O2 -I../lsvd -DDEBUG
+CFLAGS=-g -O2 -I../lsvd -DDEBUG -pthread
 LDFLAGS=
 
-all: clean sdaemon
+all: clean sdaemon test
 
 sdaemon: replicamgr.o lsvd.o sdaemon.cpp 
 	$(CC) $(CFLAGS) lsvd.o replicamgr.o sdaemon.cpp -o sdaemon
@@ -20,4 +20,4 @@ lsvd.o:
 	$(CC) $(CFLAGS) -c ../lsvd/lsvd.c
 
 clean:
-	rm -f *.o test sdaemon
+	rm -f *.o sdaemon replica_test

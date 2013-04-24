@@ -33,7 +33,7 @@ int main(int argc, char *argv[]){
 
     rmgr = new ReplicaManager(1, 1, 1);
     
-    rmgr->create("/tmp/tmp.dsk", 1048576*FBS_SECTORSIZE);
+    rmgr->create("/tmp/tmp.dsk", 1048576*FBS_SECTORSIZE/LSVD_SECTORSIZE);
     rmgr->open("/tmp/tmp.dsk");
 
     if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
