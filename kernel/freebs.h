@@ -5,8 +5,17 @@
 #include <linux/genhd.h>
 #include <linux/in.h>
 
+#define fbs_printk(type, fmt, ...) \
+  printk(type fmt, ##__VA_ARGS__)
+
 #define fbs_info(fmt, ...) \
-  pr_info("%s:%d - " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
+  fbs_printk(KERN_INFO, fmt, ##__VA_ARGS__) //"%s:%d - " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
+
+#define fbs_err(fmt, ...) \
+  fbs_printk(KERN_ERR, fmt, ##__VA_ARGS__)
+
+#define fbs_debug(fmt, ...) \
+  fbs_printk(KERN_DEBUG, fmt, ##__VA_ARGS__)
 
 struct freebs_socket {
     struct mutex mutex;
@@ -90,6 +99,9 @@ struct freebs_device {
     struct list_head    rq_queue;
     struct mutex        rq_mutex;
     struct semaphore    rq_queue_sem;
+    struct task_struct  *receiver;
+    struct task_struct  *sender;
+    bool                send;       /* true iff sender should keep running */
 };
 
 #define __packed __attribute__((packed))

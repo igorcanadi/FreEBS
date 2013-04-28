@@ -37,6 +37,8 @@ struct freebs_device fbs_dev;
 
 static struct kmem_cache *fbs_req_cache;
 
+static void fbs_cleanup(void);
+
 static int fbs_open(struct block_device *bdev, fmode_t mode)
 {
     unsigned unit = iminor(bdev->bd_inode);
@@ -175,6 +177,41 @@ int complete_read(struct freebs_device *fbs_dev, struct request *req) {
     return bytes_read;
 }
 
+int try_connect_again(struct freebs_device *fbs_dev)
+{
+    struct socket *sock = fbs_dev->data.socket;
+    struct sockaddr_in *servaddr = &fbs_dev->data.servaddr;
+
+    while (sock->ops->connect(sock, 
+                               (struct sockaddr *)servaddr, 
+                               sizeof(struct sockaddr), 
+                               O_RDWR)) {
+        pr_err("failed to reconnect\n");
+    }
+
+    return 0;
+}
+
+void fail_request(struct freebs_request *req)
+{
+    struct freebs_device *fbs_dev = req->fbs_dev;
+
+    blk_end_request_all(req->req, -1);
+    mutex_lock(&fbs_dev->in_flight_l);
+    list_del(&req->queue);
+    mutex_unlock(&fbs_dev->in_flight_l);
+}
+
+void fail_all_requests(struct freebs_device *fbs_dev)
+{
+    struct freebs_request *req;
+
+    list_for_each_entry(req, &fbs_dev->rq_queue, queue)
+        blk_end_request_all(req->req, -1);
+    list_for_each_entry(req, &fbs_dev->in_flight, queue)
+        blk_end_request_all(req->req, -1);
+}
+
 /**
  * freebs_receiver
  * This is the receiver thread; on startup, it loops, reading from the socket
@@ -195,30 +232,33 @@ int freebs_receiver(void *data)
             req_num = be32_to_cpu(res.req_num);
             req = get_request(&fbs_dev->in_flight, &fbs_dev->in_flight_l, req_num);
             if (!req) {
-                //pr_err("freebs: unexpected request completion! skipping...");
+                pr_err("freebs: unexpected request completion! skipping...");
                 continue;
             }
             if (res.status == 0) {
+                status = 0;
                 if (rq_data_dir(req->req) == READ) {
                     /* read request returning */
                     if (complete_read(fbs_dev, req->req) < 0)
                         status = -1;
-                    else
-                        status = 0;
-                }
-                else {
-                    status = 0;
                 }
             } else {
                 status = -1;
             }
-            blk_end_request_all(req->req, status); //res.status == 0 ? 0 : -1);
+            blk_end_request_all(req->req, status); 
             kmem_cache_free(fbs_req_cache, req);
-            //kfree(req);
         } else {
             break;
         }
     }
+
+    fbs_debug("stopping sender\n");
+    fbs_dev->send = false;
+    //kthread_stop(fbs_dev->sender);
+    up(&fbs_dev->rq_queue_sem);
+    fbs_debug("sender stopped\n");
+    fbs_cleanup();
+
     return -1;
 }
 
@@ -238,6 +278,8 @@ int freebs_sender(void *data)
     sector_t sector_cnt;
 
     while (!down_interruptible(&fbs_dev->rq_queue_sem)) {
+        if (!fbs_dev->send)
+            break;
         mutex_lock(&fbs_dev->rq_mutex);
         if (list_empty(&fbs_dev->rq_queue)) {
             mutex_unlock(&fbs_dev->rq_mutex);
@@ -267,6 +309,7 @@ int freebs_sender(void *data)
             ok = sizeof(hdr) == freebs_send(fbs_dev, fbs_dev->data.socket, &hdr, sizeof(hdr), 0);
             if (!ok) {
                 printk(KERN_ERR "freebs: send failed");
+                fail_request(fbs_req);
                 continue;
             }
             // TODO: do something about ok
@@ -287,7 +330,8 @@ int freebs_sender(void *data)
                     ok = sectors * KERNEL_SECTOR_SIZE == freebs_send(fbs_dev, fbs_dev->data.socket, buffer, sectors * KERNEL_SECTOR_SIZE, 0);
                     if (!ok) {
                         printk(KERN_ERR "freebs: send failed");
-                        break;
+                        fail_request(fbs_req);
+                        continue;
                     }
                     sector_offset += sectors;
                 }
@@ -326,6 +370,7 @@ static int fbs_transfer(struct request *req)
         fbs_req->seq_num = atomic_read(&fbs_dev->packet_seq);
     fbs_req->req_num = atomic_add_return(1, &fbs_dev->req_num);
     enqueue_request(&fbs_req->queue, &fbs_dev->rq_queue, &fbs_dev->rq_mutex);
+    fbs_dev->send = true;
     up(&fbs_dev->rq_queue_sem);
 
     return ret;
@@ -390,18 +435,21 @@ static int __init fbs_init(void)
 
     return ret;
 }
+
 /*
  * This is the unregistration and uninitialization section of the FreEBS block
  * device driver
  */
-static void __exit fbs_cleanup(void)
+static void fbs_cleanup(void)
 {
-    del_gendisk(fbs_dev.fbs_disk);
-    put_disk(fbs_dev.fbs_disk);
-    blk_cleanup_queue(fbs_dev.fbs_queue);
     unregister_blkdev(freebs_major, "freebs");
+    if (fbs_dev.data.socket) {
+        sock_release(fbs_dev.data.socket);
+    }
+    //fail_all_requests(&fbs_dev);
     bsdevice_cleanup(&fbs_dev);
     // TODO: check that cache is empty before destruction
+    fail_all_requests(&fbs_dev);
     kmem_cache_destroy(fbs_req_cache);
 }
 
@@ -439,8 +487,8 @@ int bsdevice_init(struct freebs_device *fbs_dev)
     mutex_init(&fbs_dev->rq_mutex);
     //up(&fbs_dev->rq_queue_sem);
 
-    kthread_run(freebs_receiver, fbs_dev, "fbs");
-    kthread_run(freebs_sender, fbs_dev, "fbs");
+    fbs_dev->receiver = kthread_run(freebs_receiver, fbs_dev, "fbs");
+    fbs_dev->sender = kthread_run(freebs_sender, fbs_dev, "fbs");
 
     fbs_dev->size = FREEBS_DEVICE_SIZE;
 
@@ -507,8 +555,9 @@ int bsdevice_init(struct freebs_device *fbs_dev)
 
 void bsdevice_cleanup(struct freebs_device *fbs_dev)
 {
-    if (fbs_dev->data.socket)
-        sock_release(fbs_dev->data.socket);
+    del_gendisk(fbs_dev->fbs_disk);
+    put_disk(fbs_dev->fbs_disk);
+    blk_cleanup_queue(fbs_dev->fbs_queue);
 }
 
 /*
