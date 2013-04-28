@@ -8,6 +8,7 @@
 // It has to do with compiler-dependent struct alignment.
 // The actual number fits in 32 bits
 #define MAGIC_NUMBER 0x60C0FFEE
+#define CHECKPOINT_FREQUENCY 60 // every 1 min
 
 struct superblock {
     uint32_t magic; // magic number. 0x60C0FFEE.
@@ -25,10 +26,18 @@ struct lsvd_disk {
     uint64_t *sector_to_offset;
     struct superblock *sblock;
     pthread_mutex_t mutex;
+    pthread_cond_t checkpoint_cond;
+    pthread_t checkpoint_t;
+    int checkpoint_state; // first bit - checkpoint initialized
+                          // second bit - checkpoint forced
+                          // third bit - checkpoint in progress
+                          // fourth bit - exit initiated
+                          // fifth bit - error occurred in last checkpoint
 };
 
 struct lsvd_disk *create_lsvd(const char *pathname, uint64_t size);
 struct lsvd_disk *open_lsvd(const char *pathname);
+int cleanup_lsvd(const char *old_pathname, const char *new_pathname);
 int read_lsvd(struct lsvd_disk *lsvd, char *buf,
         uint64_t length, uint64_t offset, uint64_t version);
 int write_lsvd(struct lsvd_disk *lsvd, const char *buf,

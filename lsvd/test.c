@@ -20,13 +20,26 @@ int main() {
     lsvd = create_lsvd("/scratch/test_disk", SIZE / SECTOR_SIZE);
     assert(lsvd != NULL);
     assert(write_lsvd(lsvd, data, 2, 11, 1) == 0);
+    assert(write_lsvd(lsvd, data, 2, 11, 2) == 0);
+    assert(write_lsvd(lsvd, data, 1, 11, 3) == 0);
     assert(close_lsvd(lsvd) == 0);
 
     lsvd = open_lsvd("/scratch/test_disk");
     assert(lsvd != NULL);
-    assert(get_version(lsvd) == 1);
+    assert(get_version(lsvd) == 3);
     assert(lsvd->sblock->size == SIZE / SECTOR_SIZE);
-    assert(read_lsvd(lsvd, buffer, 2, 11, 1) == 0);
+    assert(read_lsvd(lsvd, buffer, 2, 11, 3) == 0);
+    assert(strncmp(data, buffer, SECTOR_SIZE) == 0);
+    assert(close_lsvd(lsvd) == 0);
+
+    assert(cleanup_lsvd("/scratch/test_disk", "/scratch/test_disk_smaller")
+            == 0);
+
+    lsvd = open_lsvd("/scratch/test_disk_smaller");
+    assert(lsvd != NULL);
+    assert(get_version(lsvd) == 3);
+    assert(lsvd->sblock->size == SIZE / SECTOR_SIZE);
+    assert(read_lsvd(lsvd, buffer, 2, 11, 3) == 0);
     assert(strncmp(data, buffer, SECTOR_SIZE) == 0);
     assert(close_lsvd(lsvd) == 0);
 
