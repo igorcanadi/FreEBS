@@ -19,7 +19,10 @@
         NUM * SIZEOF_CHECKPOINT(SIZE))
 // where is the first byte written in a new disk
 // new disk starts with superblock and two checkpoint buffers
-#define NEW_DISK_OFFSET(SIZE) CHECKPOINT_OFFSET(2, SIZE)
+#define FIRST_RECORD_OFFSET(SIZE) CHECKPOINT_OFFSET(2, SIZE)
+#define SIZEOF_DATA_COMMIT(LENGTH) sizeof(struct record_descriptor) * 2 + \
+        sizeof(struct data_record) + sizeof(struct commit_record) + \
+        LENGTH * SECTOR_SIZE
 
 #define CHECKPOINT_BATCH_SIZE (8*1024*1024) // 8MB
 
@@ -365,12 +368,12 @@ struct lsvd_disk *create_lsvd(const char *pathname, uint64_t size) {
     lsvd->version = 0;
 
     // offset is the next free space after two checkpoints get written
-    if (dump_checkpoint(lsvd, NEW_DISK_OFFSET(lsvd->sblock->size)) < 0) {
+    if (dump_checkpoint(lsvd, FIRST_RECORD_OFFSET(lsvd->sblock->size)) < 0) {
         goto cleanup_sto;
     }
     // we need two checkpoints, the other one is used for writing out a new
     // checkpoint without blocking
-    if (dump_checkpoint(lsvd, NEW_DISK_OFFSET(lsvd->sblock->size)) < 0) {
+    if (dump_checkpoint(lsvd, FIRST_RECORD_OFFSET(lsvd->sblock->size)) < 0) {
         goto cleanup_sto;
     }
 
@@ -403,7 +406,7 @@ int recover_lsvd_state(struct lsvd_disk *lsvd) {
     struct data_record dr;
     char *data;
     uint64_t i;
-    // just to eliminate warning, init value should never be used
+    // just to eliminate warning, 0 value should never be used
     uint64_t dr_checksum = 0;
 
     if (read_checkpoint(lsvd) < 0) {
@@ -539,6 +542,184 @@ cleanup_mutex:
 cleanup_lsvd:
     free(lsvd);
     return NULL;
+}
+
+int copy_data(int src_fd, int dest_fd, size_t size, off_t offset) {
+    int ret = 0;
+    char *data = (char *) malloc(size);
+    if (data == NULL) {
+        return -1;
+    }
+    if (pread(src_fd, data, size, offset) != size) {
+        ret = -1;
+        goto free_data;
+    }
+    if (write(dest_fd, data, size) != size) {
+        ret = -1;
+    }
+
+free_data:
+    free(data);
+    return ret;
+}
+
+// get rid of unused sectors in the file
+int cleanup_lsvd(const char *old_pathname, const char *new_pathname) {
+    struct lsvd_disk *lsvd;
+    uint64_t *new_sector_to_offset;
+    uint64_t new_current;
+    off_t current;
+    ssize_t bytes_read;
+    struct record_descriptor rd;
+    struct commit_record cr;
+    struct data_record dr;
+    uint64_t i;
+    int is_used;
+    uint64_t version = 0;
+    int ret = 0;
+    int new_fd = 0;
+
+    // open old disk
+    if ((lsvd = open_lsvd(old_pathname)) == NULL) {
+        return -1;
+    }
+
+    // open new disk
+    if ((new_fd = open(new_pathname, O_CREAT | O_TRUNC | O_RDWR)) < 0) {
+        ret = -1;
+        goto close_old;
+    }
+
+    if (pthread_mutex_lock(&lsvd->mutex) < 0) {
+        ret = -1;
+        goto close_new;
+    }
+
+    // copy superblock and checkpoints
+    if (lseek(lsvd->fd, 0, SEEK_SET) < 0) {
+        ret = -1;
+        goto unlock;
+    }
+    if (copy_data(lsvd->fd, new_fd, FIRST_RECORD_OFFSET(lsvd->sblock->size),
+                0) < 0) {
+        ret = -1;
+        goto unlock;
+    }
+
+    // allocate new sector to offset map
+    new_sector_to_offset =
+        (uint64_t *) calloc(sizeof(uint64_t), lsvd->sblock->size);
+    if (new_sector_to_offset == NULL) {
+        ret = -1;
+        goto unlock;
+    }
+
+    // this is where we should be
+    current = FIRST_RECORD_OFFSET(lsvd->sblock->size);
+    new_current = FIRST_RECORD_OFFSET(lsvd->sblock->size);
+
+    while (version < lsvd->version) {
+        // seek to current
+        if (lseek(lsvd->fd, current, SEEK_SET) < 0) {
+            ret = -1;
+            break;
+        }
+
+        // read in record descriptor
+        bytes_read = read(lsvd->fd, &rd, sizeof(rd));
+        if (bytes_read != sizeof(rd) || rd.magic != MAGIC_NUMBER) {
+            ret = -1;
+            break;
+        }
+
+        if (rd.type != DATA_RECORD) {
+            // something went wrong here
+            ret = -1;
+            break;
+        }
+
+        // read data record
+        bytes_read = read(lsvd->fd, &dr, sizeof(dr));
+        if (bytes_read != sizeof(dr)) {
+            ret = -1;
+            break;
+        }
+
+        // check if used
+        is_used = 0;
+        for (i = 0; i < dr.length; ++i) {
+            if (*(lsvd->sector_to_offset + (dr.disk_offset + i)) <=
+                    current + sizeof(rd) + sizeof(dr) + i * SECTOR_SIZE) {
+                is_used = 1;
+                break;
+            }
+        }
+
+        // if used, copy the data
+        if (is_used) {
+            // update new_sector_to_offset
+            for (i = 0; i < dr.length; ++i) {
+                *(new_sector_to_offset + (dr.disk_offset + i)) =
+                    new_current + sizeof(rd) + sizeof(dr) + i * SECTOR_SIZE;
+            }
+            // copy data over
+            if (copy_data(lsvd->fd, new_fd,
+                        SIZEOF_DATA_COMMIT(dr.length), current) < 0) {
+                ret = -1;
+                break;
+            }
+            new_current += SIZEOF_DATA_COMMIT(dr.length);
+        }
+
+        // read commit record
+        bytes_read = pread(lsvd->fd, &cr, sizeof(cr), current +
+                SIZEOF_DATA_COMMIT(dr.length) - sizeof(cr));
+        if (bytes_read != sizeof(cr)) {
+            ret = -1;
+            break;
+        }
+        // update version
+        version = cr.version;
+
+        // update current
+        current += SIZEOF_DATA_COMMIT(dr.length);
+    }
+
+    if (ret == 0) {
+        // -------- write checkpoint ---------
+        if (lseek(new_fd, lsvd->sblock->last_checkpoint, SEEK_SET) < 0) {
+            ret = -1;
+            goto clear_sector_to_offset;
+        }
+        // write offset
+        if (write(new_fd, &new_current, sizeof(new_current)) !=
+                sizeof(new_current)) {
+            ret = -1;
+            goto clear_sector_to_offset;
+        }
+        // write version
+        if (write(new_fd, &version, sizeof(version)) != sizeof(version)) {
+            ret = -1;
+            goto clear_sector_to_offset;
+        }
+        // write sector_to_offset map
+        if (write(new_fd, new_sector_to_offset, SIZEOF_STO(lsvd->sblock->size))
+                != SIZEOF_STO(lsvd->sblock->size)) {
+            ret = -1;
+            goto clear_sector_to_offset;
+        }
+    }
+
+clear_sector_to_offset:
+    free(new_sector_to_offset);
+unlock:
+    pthread_mutex_unlock(&lsvd->mutex);
+close_new:
+    close(new_fd);
+close_old:
+    close_lsvd(lsvd);
+
+    return ret;
 }
 
 // length and offset are in sectors

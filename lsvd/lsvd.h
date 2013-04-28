@@ -37,6 +37,7 @@ struct lsvd_disk {
 
 struct lsvd_disk *create_lsvd(const char *pathname, uint64_t size);
 struct lsvd_disk *open_lsvd(const char *pathname);
+int cleanup_lsvd(const char *old_pathname, const char *new_pathname);
 int read_lsvd(struct lsvd_disk *lsvd, char *buf,
         uint64_t length, uint64_t offset, uint64_t version);
 int write_lsvd(struct lsvd_disk *lsvd, const char *buf,
