@@ -19,9 +19,7 @@
 #include <linux/slab.h>
 #include <net/sock.h>
 
-//#define FREEBS_DEVICE_SIZE (1073741824/512) /* bytes */
-#define FREEBS_DEVICE_SIZE (2048)
-/* So, total device size = 2048 * 512 bytes = 1024 KiB = 1 MiB */
+#define FREEBS_DEVICE_SIZE (1048576) // in 512-byte sectors
 
 __be32 in_aton(const char *);
 
@@ -200,6 +198,7 @@ void fail_request(struct freebs_request *req)
 {
     struct freebs_device *fbs_dev = req->fbs_dev;
 
+    fbs_debug("failing request %d, seq_num %d\n", req->req_num, req->seq_num);
     blk_end_request_all(req->req, -1);
     mutex_lock(&fbs_dev->in_flight_l);
     list_del(&req->queue);
@@ -288,7 +287,7 @@ void freebs_sender(struct work_struct *work)
 
     req = fbs_req->req;
     dir = rq_data_dir(req);
-    if (dir == WRITE)
+    if (dir == WRITE) 
         hdr.command = cpu_to_be16(FBS_WRITE);
     else
         hdr.command = cpu_to_be16(FBS_READ);
@@ -306,9 +305,9 @@ void freebs_sender(struct work_struct *work)
         goto fail;
 
     sector_offset = 0;
-    printk(KERN_DEBUG "freebs: Sector Offset: %lld; Length: %u bytes\n",
-           (long long int) fbs_req->sector, fbs_req->size);
-    printk(KERN_DEBUG "sending data...");
+    //printk(KERN_DEBUG "freebs: Sector Offset: %lld; Length: %u bytes\n",
+           //(long long int) fbs_req->sector, fbs_req->size);
+    //printk(KERN_DEBUG "sending data...");
     if (dir == WRITE) {
         rq_for_each_segment(bv, req, iter) {
             buffer = page_address(bv->bv_page) + bv->bv_offset;
@@ -355,7 +354,7 @@ static int fbs_transfer(struct request *req)
     fbs_req->sector = start_sector;
     fbs_req->size = sector_cnt * KERNEL_SECTOR_SIZE;
     fbs_req->req = req;
-    if (rq_data_dir(req) == WRITE)
+    if (rq_data_dir(req) == WRITE) 
         fbs_req->seq_num = atomic_add_return(1, &fbs_dev->packet_seq);
     else
         fbs_req->seq_num = atomic_read(&fbs_dev->packet_seq);
@@ -445,7 +444,7 @@ int bsdevice_init(struct freebs_device *fbs_dev)
     struct sockaddr_in *servaddr = &fbs_dev->data.servaddr;
     struct socket *sock;
 
-    fbs_dev->data.work_queue = create_workqueue("fbs_req");
+    fbs_dev->data.work_queue = create_singlethread_workqueue("fbs_req");
     if (!fbs_dev->data.work_queue) {
         fbs_err("error creating workqueue\n");
         return -1;
@@ -463,11 +462,12 @@ int bsdevice_init(struct freebs_device *fbs_dev)
     servaddr->sin_port = htons(9000);
     //servaddr->sin_addr.s_addr = in_aton("127.0.0.1");
     servaddr->sin_addr.s_addr = in_aton("192.168.56.10");
+    //servaddr->sin_addr.s_addr = in_aton("128.105.15.148");
 
     r = sock->ops->connect(sock, (struct sockaddr *)servaddr, sizeof(struct sockaddr), O_RDWR);
 
     if (r) {
-        printk(KERN_ERR "error connecting: %d", r);
+        printk(KERN_ERR "error connecting: %d\n", r);
         return r;
     }
 
