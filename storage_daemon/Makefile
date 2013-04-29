@@ -1,11 +1,11 @@
 CC=g++
 CFLAGS=-g -O2 -I../lsvd -pthread -DDEBUG
-LDFLAGS=
+LDFLAGS=-lrt
 
-all: clean sdaemon test
+all: clean sdaemon #test
 
 sdaemon: replicamgr.o lsvd.o sdaemon.cpp 
-	$(CC) $(CFLAGS) lsvd.o replicamgr.o sdaemon.cpp -o sdaemon
+	$(CC) $(CFLAGS) lsvd.o replicamgr.o sdaemon.cpp $(LDFLAGS) -o sdaemon
 
 install: sdaemon
 	scp sdaemon testbed:~/
