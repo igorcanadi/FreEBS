@@ -150,7 +150,7 @@ int do_checkpoint_thread(struct lsvd_disk *lsvd) {
             return -1;
         }
 
-        bytes_written = pwrite(lsvd->fd, (void *)lsvd->sector_to_offset + i,
+        bytes_written = pwrite(lsvd->fd, (char *)lsvd->sector_to_offset + i,
                 batch, offset);
         if (bytes_written < 0) {
             return -1;
@@ -585,7 +585,8 @@ int cleanup_lsvd(const char *old_pathname, const char *new_pathname) {
     }
 
     // open new disk
-    if ((new_fd = open(new_pathname, O_CREAT | O_TRUNC | O_RDWR)) < 0) {
+    new_fd = open(new_pathname, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
+    if (new_fd < 0) {
         ret = -1;
         goto close_old;
     }
