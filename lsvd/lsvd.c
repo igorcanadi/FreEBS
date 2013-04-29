@@ -585,7 +585,8 @@ int cleanup_lsvd(const char *old_pathname, const char *new_pathname) {
     }
 
     // open new disk
-    if ((new_fd = open(new_pathname, O_CREAT | O_TRUNC | O_RDWR)) < 0) {
+    new_fd = open(new_pathname, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
+    if (new_fd < 0) {
         ret = -1;
         goto close_old;
     }
