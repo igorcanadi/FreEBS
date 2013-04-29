@@ -150,7 +150,7 @@ int do_checkpoint_thread(struct lsvd_disk *lsvd) {
             return -1;
         }
 
-        bytes_written = pwrite(lsvd->fd, (void *)lsvd->sector_to_offset + i,
+        bytes_written = pwrite(lsvd->fd, (char *)lsvd->sector_to_offset + i,
                 batch, offset);
         if (bytes_written < 0) {
             return -1;
