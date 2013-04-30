@@ -109,6 +109,7 @@ void handleConnection(int conn){
     struct fbs_header header;
 
     while(1){
+        bytesRead = 0;
 get_header:
         bytesRead += recv(conn, &buffer + bytesRead, sizeof(buffer) - bytesRead, 0); // Blocking
         if (bytesRead < 0){
