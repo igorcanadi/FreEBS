@@ -1,3 +1,4 @@
 *.o
 *.swp
 lsvd_test
+results/*

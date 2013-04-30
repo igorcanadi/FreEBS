@@ -35,6 +35,7 @@ struct lsvd_disk {
                           // fifth bit - error occurred in last checkpoint
 };
 
+// size is in sectors
 struct lsvd_disk *create_lsvd(const char *pathname, uint64_t size);
 struct lsvd_disk *open_lsvd(const char *pathname);
 int cleanup_lsvd(const char *old_pathname, const char *new_pathname);
