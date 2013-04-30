@@ -32,6 +32,8 @@
 #define CHECKPOINT_EXIT          (1 << 3)
 #define CHECKPOINT_FAILED        (1 << 4)
 
+#define DO_CHECKPOINTING
+
 struct record_descriptor {
     uint32_t magic;
     uint32_t type;
@@ -230,6 +232,7 @@ void *checkpoint_thread(void *lsvd_v) {
 
 // has to be called with mutex lock held
 int start_checkpoint_thread(struct lsvd_disk *lsvd) {
+#ifdef DO_CHECKPOINTING
     if (pthread_cond_init(&lsvd->checkpoint_cond, NULL) != 0) {
         return -1;
     }
@@ -241,11 +244,13 @@ int start_checkpoint_thread(struct lsvd_disk *lsvd) {
         pthread_cond_destroy(&lsvd->checkpoint_cond);
         return -1;
     }
+#endif
     return 0;
 }
 
 // has to be called with mutex lock held
 int force_checkpoint(struct lsvd_disk *lsvd) {
+#ifdef DO_CHECKPOINTING
     // force checkpoint flag
     lsvd->checkpoint_state |= CHECKPOINT_FORCED;
 
@@ -253,6 +258,7 @@ int force_checkpoint(struct lsvd_disk *lsvd) {
     if (pthread_cond_signal(&lsvd->checkpoint_cond) != 0) {
         return -1;
     }
+#endif
 
     return 0;
 }
@@ -260,6 +266,7 @@ int force_checkpoint(struct lsvd_disk *lsvd) {
 // has to be called with mutex lock held
 // returns only after the checkpoint is done
 int stop_checkpoint_thread(struct lsvd_disk *lsvd) {
+#ifdef DO_CHECKPOINTING
     // initiated exit flag
     lsvd->checkpoint_state |= CHECKPOINT_EXIT;
 
@@ -281,6 +288,7 @@ int stop_checkpoint_thread(struct lsvd_disk *lsvd) {
 
     // clean up
     pthread_cond_destroy(&lsvd->checkpoint_cond);
+#endif
 
     return 0;
 }
