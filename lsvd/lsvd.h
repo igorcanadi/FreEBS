@@ -44,4 +44,14 @@ int write_lsvd(struct lsvd_disk *lsvd, const char *buf,
         uint64_t length, uint64_t offset, uint64_t version);
 int fsync_lsvd(struct lsvd_disk *lsvd);
 uint64_t get_version(struct lsvd_disk *lsvd);
+// this will return raw writes in buffer as return value
+// size of the buffer is returned via parameters
+// returns NULL on error
+// IMPORTANT: please remember to free the returning buffer
+// when done with processing
+// NOTE: the writes will start from the smallest version >= first_version
+char *get_writes_lsvd(struct lsvd_disk *lsvd, uint64_t first_version,
+        size_t *size);
+int put_writes_lsvd(struct lsvd_disk *lsvd, uint64_t first_version, char *buf,
+        size_t size);
 int close_lsvd(struct lsvd_disk *lsvd);

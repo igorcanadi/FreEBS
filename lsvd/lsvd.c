@@ -34,6 +34,10 @@
 
 #define DO_CHECKPOINTING
 
+// DISK LAYOUT
+// <SUPERBLOCK> <CHECKPOINT 1> <CHECKPOINT 2>
+// [ <RD> <DR> <RD> <CR> ]*
+
 struct record_descriptor {
     uint32_t magic;
     uint32_t type;
@@ -416,10 +420,7 @@ int recover_lsvd_state(struct lsvd_disk *lsvd) {
     uint64_t i;
     // just to eliminate warning, 0 value should never be used
     uint64_t dr_checksum = 0;
-
-    if (read_checkpoint(lsvd) < 0) {
-        return -1;
-    }
+    int ret = 0;
 
     while (1) {
         // figure out where we are
@@ -464,6 +465,21 @@ int recover_lsvd_state(struct lsvd_disk *lsvd) {
                 break;
             }
 
+            // check if commit record has wrong data_record_offset and fix it
+            if (cr.data_record_offset != current - dr.length * SECTOR_SIZE
+                    - sizeof(dr)) {
+                cr.data_record_offset = current - dr.length * SECTOR_SIZE
+                    - sizeof(dr);
+                if (lseek(lsvd->fd, -sizeof(cr), SEEK_CUR) < 0) {
+                    ret = -1;
+                    break;
+                }
+                if (write(lsvd->fd, &cr, sizeof(cr)) != sizeof(cr)) {
+                    ret = -1;
+                    break;
+                }
+            }
+
             // update sector to offset map
             for (i = 0; i < dr.length; ++i) {
                 *(lsvd->sector_to_offset + (dr.disk_offset + i)) =
@@ -481,7 +497,7 @@ int recover_lsvd_state(struct lsvd_disk *lsvd) {
         return -1;
     }
 
-    return 0;
+    return ret;
 }
 
 struct lsvd_disk *open_lsvd(const char *pathname) {
@@ -526,6 +542,10 @@ struct lsvd_disk *open_lsvd(const char *pathname) {
         (uint64_t *) malloc(sizeof(uint64_t) * lsvd->sblock->size);
     if (lsvd->sector_to_offset == NULL) {
         goto cleanup_file;
+    }
+
+    if (read_checkpoint(lsvd) < 0) {
+        goto cleanup_so;
     }
 
     if (recover_lsvd_state(lsvd) < 0) {
@@ -883,6 +903,91 @@ int fsync_lsvd(struct lsvd_disk *lsvd) {
 uint64_t get_version(struct lsvd_disk *lsvd) {
     // i hope i don't have to lock this
     return lsvd->version;
+}
+
+char *get_writes_lsvd(struct lsvd_disk *lsvd, uint64_t first_version,
+        size_t *size) {
+    struct commit_record cr;
+    off_t offset, end_offset;
+    char *buf = NULL;
+    if (pthread_mutex_lock(&lsvd->mutex) < 0) {
+        return NULL;
+    }
+
+    if ((end_offset = lseek(lsvd->fd, 0, SEEK_CUR)) < 0) {
+        goto unlock;
+    }
+
+    offset = end_offset;
+
+    // find first_version
+    do {
+        // if we are by any chance at the beginning of the disk
+        if (offset <= FIRST_RECORD_OFFSET(lsvd->sblock->size)) {
+            break;
+        }
+        if (pread(lsvd->fd, &cr, sizeof(cr), offset - sizeof(cr)) !=
+                sizeof(cr)) {
+            goto unlock;
+        }
+        if (cr.version < first_version) {
+            // we already have our write, no need to change offset
+            break;
+        }
+        offset = cr.data_record_offset - sizeof(struct record_descriptor);
+        if (cr.version == first_version) {
+            break;
+        }
+    } while (1);
+
+    *size = end_offset - offset;
+
+    if ((buf = (char *)malloc(*size)) == NULL) {
+        goto unlock;
+    }
+
+    if (pread(lsvd->fd, buf, *size, offset) != *size) {
+        free(buf);
+        buf = NULL;
+        goto unlock;
+    }
+
+unlock:
+    pthread_mutex_unlock(&lsvd->mutex);
+    return buf;
+}
+
+int put_writes_lsvd(struct lsvd_disk *lsvd, uint64_t first_version, char *buf,
+        size_t size) {
+    off_t offset;
+    int ret = 0;
+
+    if (pthread_mutex_lock(&lsvd->mutex) < 0) {
+        return -1;
+    }
+
+    if (lsvd->version >= first_version) {
+        ret = -1;
+        goto unlock;
+    }
+
+    if ((offset = lseek(lsvd->fd, 0, SEEK_CUR)) < 0) {
+        ret = -1;
+        goto unlock;
+    }
+    if (pwrite(lsvd->fd, buf, size, offset) != size) {
+        ret = -1;
+        goto unlock;
+    }
+
+    if (recover_lsvd_state(lsvd) < 0) {
+        ret = -1;
+        goto unlock;
+    }
+
+unlock:
+    pthread_mutex_unlock(&lsvd->mutex);
+    return ret;
 }
 
 int close_lsvd(struct lsvd_disk *lsvd) {

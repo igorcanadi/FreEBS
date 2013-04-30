@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall -O2 -pthread -lrt
+CFLAGS=-Wall -O2 -pthread -lrt -D_FILE_OFFSET_BITS=64
 
 all: test
 
