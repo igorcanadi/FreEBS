@@ -110,12 +110,12 @@ void handleConnection(int conn){
 
     while(1){
 get_header:
-        bytesRead = recv(conn, &buffer + bytesRead, sizeof(buffer) - bytesRead, 0); // Blocking
+        bytesRead += recv(conn, &buffer + bytesRead, sizeof(buffer) - bytesRead, 0); // Blocking
         if (bytesRead < 0){
             perror("ERROR reading from socket");
             close(conn);
             return;
-        } else if (unsigned(bytesRead) < sizeof(header)){
+        } else if (bytesRead < sizeof(header)){
             goto get_header;
         }
         
