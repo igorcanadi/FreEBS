@@ -150,19 +150,25 @@ get_header:
 // data
 int sendResponse(int conn, struct resp_data response, bool write) {
     int bytesWritten = 0;
+    int rv;
 
 #ifdef DEBUG
     printf("SendResponse: %u %u\n", ntohs(response.header.status), ntohl(response.header.req_num));
 #endif
-    bytesWritten = send(conn, &response.header, sizeof(response.header), 0);
-    if (bytesWritten < 0){
-        return bytesWritten;
+    while (bytesWritten < sizeof(response.header)) {
+        rv = send(conn, &response.header + bytesWritten, sizeof(response.header) - bytesWritten, 0);
+        if (rv < 0)
+            return rv;
+        bytesWritten += rv;
     }
 
     if(!write){
-        bytesWritten += send(conn, response.data, response.numBytes, 0);
-        if (bytesWritten < 0){
-            return bytesWritten;
+        bytesWritten = 0;
+        while (bytesWritten < sizeof(response.header)) {
+            rv = send(conn, response.data, response.numBytes, 0);
+            if (rv < 0)
+                return rv;
+            bytesWritten += rv;
         }
     }
 #ifdef DEBUG
