@@ -109,13 +109,14 @@ void handleConnection(int conn){
     struct fbs_header header;
 
     while(1){
-        bytesRead = recv(conn, &buffer, sizeof(buffer), 0); // Blocking
+get_header:
+        bytesRead = recv(conn, &buffer + bytesRead, sizeof(buffer) - bytesRead, 0); // Blocking
         if (bytesRead < 0){
             perror("ERROR reading from socket");
             close(conn);
             return;
         } else if (unsigned(bytesRead) < sizeof(header)){
-            continue;
+            goto get_header;
         }
         
         // Switch endianness?
@@ -145,7 +146,6 @@ void handleConnection(int conn){
         }
     }
 }
-
 
 // data
 int sendResponse(int conn, struct resp_data response, bool write) {
@@ -214,6 +214,7 @@ int handleWriteRequest(int conn, struct fbs_request &request){
     for (int req_offset = 0; req_offset < request.len;){
         status = recv(conn, &buffer[req_offset], request.len - req_offset, 0);
         if (status < 0){
+            // TODO: do something about this?
             continue;
         }
         req_offset += status;
