@@ -167,7 +167,7 @@ int complete_read(struct freebs_device *fbs_dev, struct request *req) {
         buffer = page_address(bv->bv_page) + bv->bv_offset;
         rv = fbs_recv(fbs_dev, buffer, bv->bv_len);
         if (rv != bv->bv_len) {
-            printk(KERN_ERR "couldn't complete read!");
+            printk(KERN_ERR "couldn't complete read!\n");
             if (rv < 0)
                 return rv;
             else
@@ -240,9 +240,10 @@ int freebs_receiver(void *data)
         rv = fbs_recv(fbs_dev, &res, sizeof(struct fbs_response));
         if (rv == sizeof(struct fbs_response)) {
             req_num = be32_to_cpu(res.req_num);
+            fbs_debug("completing req %d\n", req_num);
             req = get_request(&fbs_dev->in_flight, &fbs_dev->in_flight_l, req_num);
             if (!req) {
-                pr_err("freebs: unexpected request completion! skipping...");
+                pr_err("freebs: unexpected request completion! skipping...\n");
                 continue;
             }
             if (res.status == 0) {
@@ -258,6 +259,7 @@ int freebs_receiver(void *data)
             blk_end_request_all(req->req, status); 
             kmem_cache_free(fbs_req_cache, req);
         } else {
+            fbs_err("partial receive!\n");
             break;
         }
     }
@@ -297,6 +299,8 @@ void freebs_sender(struct work_struct *work)
     hdr.seq_num = cpu_to_be32(fbs_req->seq_num);
     hdr.req_num = cpu_to_be32(fbs_req->req_num);
 
+    fbs_debug("sending %d\n", fbs_req->req_num);
+
     if(!freebs_get_data_sock(fbs_dev)) 
         goto fail;
 
@@ -323,13 +327,14 @@ void freebs_sender(struct work_struct *work)
             sector_offset += sectors;
         }
         if (sector_offset != sector_cnt) 
-            printk(KERN_ERR "freebs: bio info doesn't match with the request info");
+            printk(KERN_ERR "freebs: bio info doesn't match with the request info\n");
     }
     freebs_put_data_sock(fbs_dev);
     return;
 
 fail:
-    printk(KERN_ERR "freebs: send failed");
+    printk(KERN_ERR "freebs: send failed\n");
+    freebs_put_data_sock(fbs_dev);
     fail_request(fbs_req);
 }
 
@@ -362,6 +367,7 @@ static int fbs_transfer(struct request *req)
     INIT_WORK(work_item, freebs_sender); /* ideally this would be PREPARE_WORK with INIT_WORK
                                             done in the kmem_cache constructor, but that would require
                                             each work_queue to have its own kmem_cache */
+    fbs_debug("enqueueing request num %d\n", fbs_req->req_num);
     queue_work(fbs_dev->data.work_queue, work_item);
 
     return ret;
