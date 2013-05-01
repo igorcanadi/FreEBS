@@ -111,14 +111,16 @@ void handleConnection(int conn){
     while(1){
         bytesRead = 0;
 get_header:
-        bytesRead += recv(conn, &buffer + bytesRead, sizeof(buffer) - bytesRead, 0); // Blocking
+        bytesRead += recv(conn, &buffer + bytesRead, sizeof(buffer) - bytesRead, MSG_WAITALL); // Blocking
+        /*
         if (bytesRead < 0){
             perror("ERROR reading from socket");
             close(conn);
             return;
-        } else if (bytesRead < sizeof(header)){
+        } else if (bytesRead < sizeof(header)) {
             goto get_header;
         }
+        */
         
         // Switch endianness?
         req.command = ntohs(buffer.command);
@@ -157,7 +159,7 @@ int sendResponse(int conn, struct resp_data response, bool write) {
     printf("SendResponse: %u %u\n", ntohs(response.header.status), ntohl(response.header.req_num));
 #endif
     while (bytesWritten < sizeof(response.header)) {
-        rv = send(conn, &response.header + bytesWritten, sizeof(response.header) - bytesWritten, 0);
+        rv = send(conn, &response.header + bytesWritten, sizeof(response.header) - bytesWritten, MSG_WAITALL);
         if (rv < 0)
             return rv;
         bytesWritten += rv;
@@ -166,7 +168,7 @@ int sendResponse(int conn, struct resp_data response, bool write) {
     if(!write){
         bytesWritten = 0;
         while (bytesWritten < sizeof(response.header)) {
-            rv = send(conn, response.data, response.numBytes, 0);
+            rv = send(conn, response.data, response.numBytes, MSG_WAITALL);
             if (rv < 0)
                 return rv;
             bytesWritten += rv;
@@ -219,7 +221,7 @@ int handleWriteRequest(int conn, struct fbs_request &request){
     printf("Server: Write to offset %u\n", request.offset * FBS_SECTORSIZE);
 #endif
     for (int req_offset = 0; req_offset < request.len;){
-        status = recv(conn, &buffer[req_offset], request.len - req_offset, 0);
+        status = recv(conn, &buffer[req_offset], request.len - req_offset, MSG_WAITALL);
         if (status < 0){
             // TODO: do something about this?
             continue;
