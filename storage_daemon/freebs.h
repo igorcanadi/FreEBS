@@ -4,8 +4,10 @@
 #include <linux/types.h>
 #include "msgs.h"
 
-//#define KERNEL_SECTOR_SIZE 512
-//#define __packed __attribute__((packed))
+#ifndef KERNEL_SECTOR_SIZE
+#define KERNEL_SECTOR_SIZE 512
+#define __packed __attribute__((packed))
+#endif
 
 struct fbs_request {
     unsigned short command;

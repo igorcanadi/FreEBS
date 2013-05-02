@@ -3,52 +3,53 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
 #include "replicamgr.h"
 
 
-ReplicaManager::ReplicaManager(const char *ctrl, const char *prev, 
-        const char *next){
+ReplicaManager::ReplicaManager(const char *prev, const char *next){
     // Open sockets for communication with controller and next replica
     int status = 0;
     struct hostent *he;
 
-    if ((pSock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-        perror("ERROR opening socket");
-        exit(1);
-    }
-
-    if ((nSock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-        perror("ERROR opening socket");
-        exit(1);
-    }
+    pthread_mutex_init(&p_lock, NULL);
+    pthread_mutex_init(&n_lock, NULL);
 
     // Set up connection to prev Replica
     prev_addr.sin_family = AF_INET;
     prev_addr.sin_port=htons(SYNC_PORT);  
     if (prev != NULL && *prev != '\0'){
+        pConn == true;
         he = gethostbyname(prev);
+        printf("%s\n", prev);
         memcpy(&prev_addr.sin_addr.s_addr, he->h_addr, he->h_length);
-        conn_prev();
-        isPrimary == false;
+        if (conn_prev() < 0){
+            perror("ERROR connecting to prev");
+            exit(1);
+        }
     } else {
-        isPrimary == true;
+        pConn == false;
     }
 
     // Set up connection to next Replica
     next_addr.sin_family = AF_INET;
-    next_addr.sin_port=htons(SYNC_PORT);  
+    next_addr.sin_port=htons(PROP_PORT);
     if (next != NULL && *prev != '\0'){
+        nConn == true;
         he = gethostbyname(next);
         memcpy(&next_addr.sin_addr.s_addr, he->h_addr, he->h_length);
-//        next_addr.sin_addr.s_addr = INADDR_ANY;
-        bind_next();
+    } else {
+        nConn == false;
     }
 }    
 
 ReplicaManager::~ReplicaManager(){
-    close(cSock);
+    close(pSock);
     close(nSock);
+    pthread_mutex_destroy(&p_lock);
+    pthread_mutex_destroy(&n_lock);
     close_lsvd(local);
 }
 
@@ -70,33 +71,45 @@ int ReplicaManager::open(const char *pathname){
 }
 
 /*
- * conn_prev()    Connect to previous replica
+ * conn_prev()  Connect to previous replica
  * */
 int ReplicaManager::conn_prev(){
-    return connect(pSock, (sockaddr *)&prev_addr, sizeof(prev_addr));
-}
+    int sock, status;
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        return sock;
+    }
 
-/*
- * bind_next()  Set up port to listen to next replica
- * */
-int ReplicaManager::bind_next(){
-    int status = 0;
-    if ((status = bind(nSock, (struct sockaddr *) &next_addr, 
-                    sizeof(next_addr))) < 0){
+    status = connect(sock, (sockaddr *)&prev_addr, sizeof(prev_addr));
+    if (status < 0){
         return status;
     }
-    
-    listen(nSock, 5);
-    return status;
+
+    pthread_mutex_lock(&p_lock);
+    pSock = sock;
+    pthread_mutex_lock(&p_lock);
+
+    return sock;
 }
 
 /*
- * accept_next()    Accept connection
+ * conn_next()  Connect to next replica
  * */
-int ReplicaManager::accept_next(){
-    sockaddr_in cli_addr;
-    socklen_t clilen = sizeof(cli_addr);
-    return accept(nSock, (struct sockaddr *) &cli_addr, &clilen);
+int ReplicaManager::conn_next(){
+    int sock, status;
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        return sock;
+    }
+
+    status = connect(sock, (sockaddr *)&next_addr, sizeof(next_addr));
+    if (status < 0){
+        return status;
+    }
+
+    pthread_mutex_lock(&n_lock);
+    nSock = sock;
+    pthread_mutex_unlock(&n_lock);
+
+    return sock;
 }
 
 /*
@@ -117,8 +130,12 @@ int ReplicaManager::read(uint64_t offset, uint64_t length, uint64_t seq_num, cha
 
     fbs_min = FBS_SECTORSIZE * offset;
     fbs_max = fbs_min + length * FBS_SECTORSIZE;
- 
-    lsvd_min = fbs_min - (fbs_min % LSVD_SECTORSIZE);
+
+    if(fbs_min % LSVD_SECTORSIZE){ 
+        lsvd_min = fbs_min - (fbs_min % LSVD_SECTORSIZE);
+    } else {
+        lsvd_min = fbs_min;
+    }
     if (fbs_max % LSVD_SECTORSIZE){
         lsvd_max = fbs_max + (LSVD_SECTORSIZE - (fbs_max % LSVD_SECTORSIZE));
     } else {
@@ -131,7 +148,7 @@ int ReplicaManager::read(uint64_t offset, uint64_t length, uint64_t seq_num, cha
     version = get_version(local);
 
 #ifdef DEBUG
-    printf("READ: fbs_min:%lu fbs_max:%lu lsvd_min:%lu lsvd_max:%lu\n", 
+    printf("READ: fbs_min:%llu fbs_max:%llu lsvd_min:%llu lsvd_max:%llu\n", 
             fbs_min, fbs_max, lsvd_min, lsvd_max);
 #endif
     
@@ -161,8 +178,12 @@ int ReplicaManager::write(uint64_t offset, uint64_t length, uint64_t seq_num, co
 
     fbs_min = FBS_SECTORSIZE * offset;
     fbs_max = fbs_min + length * FBS_SECTORSIZE;
- 
-    lsvd_min = fbs_min - (fbs_min % LSVD_SECTORSIZE);
+
+    if (fbs_min % LSVD_SECTORSIZE){
+        lsvd_min = fbs_min - (fbs_min % LSVD_SECTORSIZE);
+    } else {
+        lsvd_min = fbs_min;
+    }
     if (fbs_max % LSVD_SECTORSIZE){
         lsvd_max = fbs_max + (LSVD_SECTORSIZE - (fbs_max % LSVD_SECTORSIZE));
     } else {
@@ -174,7 +195,7 @@ int ReplicaManager::write(uint64_t offset, uint64_t length, uint64_t seq_num, co
 
     version = get_version(local);
 #ifdef DEBUG
-    printf("WRITE fbs_min:%lu fbs_max:%lu lsvd_min:%lu lsvd_max:%lu\n", 
+    printf("WRITE fbs_min:%llu fbs_max:%llu lsvd_min:%llu lsvd_max:%llu\n", 
             fbs_min, fbs_max, lsvd_min, lsvd_max);
 #endif
 
@@ -203,7 +224,7 @@ int ReplicaManager::write(uint64_t offset, uint64_t length, uint64_t seq_num, co
                 copy_len = LSVD_SECTORSIZE - cache_off;
             }
 #ifdef DEBUG
-            printf("cache_off:%lu, buff_off:%lu, copy_len:%lu, cache_size\n", cache_off, 
+            printf("cache_off:%llu, buff_off:%llu, copy_len:%llu, cache_size:%llu\n", cache_off, 
                     buff_off, copy_len, cache_size);
 #endif
             memcpy(&cache[cache_off], &buffer[buff_off], copy_len);
@@ -240,41 +261,61 @@ int ReplicaManager::write(uint64_t offset, uint64_t length, uint64_t seq_num, co
 }
 
 // Retrieve versions of a predecessor
+uint64_t ReplicaManager::get_local_version(){
+    return get_version(local);
+}
+
+// Retrieve writes up to version
+char * ReplicaManager::get_writes_since(uint64_t version, size_t *size){
+    return get_writes_lsvd(local, version, size);
+}
+
+// Send sync request
 void ReplicaManager::sync(){
     struct rmgr_sync_request req;
     struct rmgr_sync_response resp;
 
     char *buf;
-    uint64_t buf_len;
     int bytesRead = 0;
+    int conn;
 
-    req.command = RMGR_SYNC;
-    req.seq_num = get_version(local);
+    pthread_mutex_lock(&p_lock);
+    conn = pSock;
+    pthread_mutex_unlock(&p_lock);
 
-    if(send(pSock, &req, sizeof(req), 0) < 0){
-        // Problem syncing to predecessor
+    req.command = htons(RMGR_SYNC);
+    req.seq_num = htonl((uint32_t)(get_version(local)));
+
+    // Send SYNC message to prev
+    if(send(conn, &req, sizeof(req), 0) < 0){
         perror("ERROR sync send");
         return;
     }
-    while(req.seq_num != 0){
-        if (recv(pSock, &resp, sizeof(resp), 0) < 0){
-            perror("ERROR sync recv");
-            return;
+    // Receive all writes from prev
+    while(1) {
+        for(int off = 0; off < sizeof(resp); off += bytesRead){
+            if ((bytesRead = recv(conn, &resp + off, sizeof(resp) - off, 0)) < 0){
+                perror("ERROR sync recv");
+                return;
+            }
         }
         resp.seq_num = ntohl(resp.seq_num);
-        resp.offset = ntohl(resp.offset);
-        resp.length = ntohl(resp.length);
+        resp.size = ntohl(resp.size);
 
-        buf_len = resp.length * LSVD_SECTORSIZE;
-        buf = new char[buf_len];
-        // Recieve and apply data
-        for (int buf_off = 0; buf_off < buf_len; buf_off += bytesRead){
-            if((bytesRead = recv(pSock, &buf[buf_off], sizeof(buf), 0)) < 0){
+        if (resp.seq_num == 0){
+            // version too small
+            break;
+        }
+
+        // Receive data and write to volume
+        buf = new char[resp.size];
+        for (int buf_off = 0; buf_off < resp.size; buf_off += bytesRead){
+            if((bytesRead = recv(conn, &buf + buf_off, sizeof(buf) - buf_off, 0)) < 0){
                 delete buf;
                 return;
             }
         }
-        if (write_lsvd(local, buf, resp.length, resp.offset, resp.seq_num) < 0){
+        if (put_writes_lsvd(local, resp.seq_num, buf, resp.size) < 0){
             perror("ERROR lsvd write");
             delete buf;
             return;
@@ -285,39 +326,39 @@ void ReplicaManager::sync(){
     printf("Sync\n");
 }
 
-uint64_t ReplicaManager::get_local_version(){
-#if DEBUG
-    printf("get_version\n");
-#endif
-    return get_version(local);
-}
 
-void ReplicaManager::update(struct in_addr &prev, struct in_addr &next){
-    if (prev_addr.sin_addr.s_addr != prev.s_addr){
-        prev_addr.sin_addr.s_addr = prev.s_addr;
+
+void ReplicaManager::update(struct in_addr *prev, struct in_addr *next){
+    if (prev != NULL && prev_addr.sin_addr.s_addr != prev->s_addr){
+        prev_addr.sin_addr.s_addr = prev->s_addr;
         close(pSock);
-        if ((pSock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-            perror("ERROR socket reopen");
-            exit(1); 
-        }
-        if (conn_prev() < 0){
-            perror("ERROR socket reconnect");
-        }
     }
 
-    if (next_addr.sin_addr.s_addr != next.s_addr){
-        next_addr.sin_addr.s_addr = next.s_addr;
+
+    if (next != NULL && next_addr.sin_addr.s_addr != next->s_addr){
+        next_addr.sin_addr.s_addr = next->s_addr;
         close(nSock);
-        if ((nSock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-           perror("ERROR socket reopen");
-           exit(1); 
-        }
-        if (bind_next() < 0){
-            perror("ERROR socket reconnect");
-            exit(1);
-        }
     }
     
     return;
+}
+
+// Send data in buf to next replica
+void ReplicaManager::send_next(char * buf, size_t len){
+    int conn, off, bytesWritten;
+    pthread_mutex_lock(&n_lock);
+    conn = nSock;
+    pthread_mutex_unlock(&n_lock);
+    printf("\n");
+    if (conn >= 0){
+        for (off = 0; off < len; off += bytesWritten){
+            if((bytesWritten = send(conn, buf, len, 0)) < 0){
+                perror("Failed send next");
+                return;
+            }
+            printf("send_next wrote %d bytes\n", bytesWritten);
+        }
+//	printf("send_next %d bytes\n", off);
+    }
 }
 

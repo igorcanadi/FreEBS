@@ -20,7 +20,8 @@ struct fbs_header {
 } __packed;
 
 enum fbs_status {
-    SUCCESS = 0
+    SUCCESS = 0,
+    ERROR
 };
 
 struct fbs_response {
