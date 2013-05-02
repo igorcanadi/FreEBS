@@ -35,6 +35,10 @@ struct freebs_device fbs_dev;
 
 static struct kmem_cache *fbs_req_cache;
 
+static char *replica_ips[10];
+static int num_replicas;
+module_param_array(replica_ips, charp, &num_replicas, S_IRUGO);
+
 static void fbs_cleanup(void);
 
 static int fbs_open(struct block_device *bdev, fmode_t mode)
@@ -73,7 +77,7 @@ static int fbs_recv(struct freebs_device *fbs_dev, void *buf, size_t size)
 		.msg_iov = (struct iovec *)&iov,
 		.msg_flags = MSG_WAITALL | MSG_NOSIGNAL
 	};
-	int rv;
+	int rv; //, bytesRead;
 
 	oldfs = get_fs();
 	set_fs(KERNEL_DS);
@@ -109,11 +113,8 @@ static int fbs_recv(struct freebs_device *fbs_dev, void *buf, size_t size)
 
 	set_fs(oldfs);
 
-    /*
-     * TODO: deal with rv != size
 	if (rv != size)
-		fbs_force_state(mdev, NS(conn, C_BROKEN_PIPE));
-    */
+        fbs_debug("partial receive!\n");
 
 	return rv;
 }
@@ -233,12 +234,19 @@ int freebs_receiver(void *data)
     struct fbs_response res;
     struct freebs_request *req;
     //struct socket *sock = fbs_dev->data.socket;
-    int rv, status;
+    int rv, status, bytesRead;
     uint32_t req_num;
     
     for (;;) {
-        rv = fbs_recv(fbs_dev, &res, sizeof(struct fbs_response));
-        if (rv == sizeof(struct fbs_response)) {
+        bytesRead = 0;
+        do {
+            fbs_debug("trying... %d\n", bytesRead);
+            rv = fbs_recv(fbs_dev, &res + bytesRead, sizeof(struct fbs_response) - bytesRead);
+            if (rv < 0) 
+                break;
+            bytesRead += rv;
+        } while (bytesRead != sizeof(struct fbs_response));
+        //if (bytesRead == sizeof(struct fbs_response)) {
             req_num = be32_to_cpu(res.req_num);
             fbs_debug("completing req %d\n", req_num);
             req = get_request(&fbs_dev->in_flight, &fbs_dev->in_flight_l, req_num);
@@ -258,10 +266,12 @@ int freebs_receiver(void *data)
             }
             blk_end_request_all(req->req, status); 
             kmem_cache_free(fbs_req_cache, req);
+            /*
         } else {
             fbs_err("partial receive!\n");
             break;
         }
+        */
     }
 
     _bsdevice_cleanup(fbs_dev);
@@ -300,6 +310,8 @@ void freebs_sender(struct work_struct *work)
     hdr.req_num = cpu_to_be32(fbs_req->req_num);
 
     fbs_debug("sending %d\n", fbs_req->req_num);
+    printk(KERN_DEBUG "freebs: Sector Offset: %lld; Length: %u bytes\n",
+           (long long int) fbs_req->sector, fbs_req->size);
 
     if(!freebs_get_data_sock(fbs_dev)) 
         goto fail;
@@ -309,9 +321,6 @@ void freebs_sender(struct work_struct *work)
         goto fail;
 
     sector_offset = 0;
-    //printk(KERN_DEBUG "freebs: Sector Offset: %lld; Length: %u bytes\n",
-           //(long long int) fbs_req->sector, fbs_req->size);
-    //printk(KERN_DEBUG "sending data...");
     if (dir == WRITE) {
         rq_for_each_segment(bv, req, iter) {
             buffer = page_address(bv->bv_page) + bv->bv_offset;
