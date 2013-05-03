@@ -32,7 +32,7 @@
 #define CHECKPOINT_EXIT          (1 << 3)
 #define CHECKPOINT_FAILED        (1 << 4)
 
-#define DO_CHECKPOINTING
+//#define DO_CHECKPOINTING
 
 // DISK LAYOUT
 // <SUPERBLOCK> <CHECKPOINT 1> <CHECKPOINT 2>
