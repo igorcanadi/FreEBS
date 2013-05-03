@@ -82,6 +82,22 @@ extern int bsdevice_init(struct freebs_device *);
 extern void bsdevice_cleanup(struct freebs_device *);
 
 /*
+ * Represents a replica manager
+ */
+struct replica {
+    uint64_t seq_num;
+    struct freebs_socket data;
+};
+
+/*
+ * Represents the list of replicas, the first one being the primary
+ */
+struct replica_list {
+    struct replica *replicas;
+    int num_replicas;
+};
+
+/*
  * The internal structure representation of our device
  */
 struct freebs_device {
@@ -101,19 +117,7 @@ struct freebs_device {
     struct mutex        in_flight_l;
     struct task_struct  *receiver;
     struct task_struct  *sender;
-};
-
-#define __packed __attribute__((packed))
-
-struct p_header_only {
-    //u16	  magic;	/* use DRBD_MAGIC_BIG here */
-    u16	  command;
-    u32	  length;	/* Use only 24 bits of that. Ignore the highest 8 bit. */
-    u8	  payload[0];
-} __packed;
-
-union p_header {
-    struct p_header_only h;
+    struct replica_list replicas;
 };
 
 /* returns 1 if it was successful,

@@ -640,7 +640,39 @@ int freebs_send(struct freebs_device *fbs_dev, struct socket *sock,
 
 void freebs_init_socks(struct freebs_device *fbs_dev)
 {
+    struct sockaddr_in *servaddr;
+    struct replica *replica;
+    struct socket *sock;
+    int r, i;
+
+    fbs_debug("initializing %d replicas...\n", num_replicas);
+    memset(&fbs_dev->replicas, 0, sizeof(fbs_dev->replicas));
+    if (!(fbs_dev->replicas.replicas = kzalloc(sizeof(*fbs_dev->replicas.replicas) * num_replicas,
+                    GFP_KERNEL)))
+        goto replica_fail;
+    for (i = 0; i < num_replicas; i++) {
+        replica = &fbs_dev->replicas.replicas[i];
+        servaddr = &replica->data.servaddr;
+        memset(servaddr, 0, sizeof(struct sockaddr_in));
+        r = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &sock);
+        if (r) {
+            printk(KERN_ERR "error creating socket: %d", r);
+            goto replica_fail;
+        }
+        servaddr->sin_family = AF_INET;
+        servaddr->sin_port = htons(9000);
+        servaddr->sin_addr.s_addr = in_aton(replica_ips[i]);
+        replica->data.socket = sock;
+        mutex_init(&fbs_dev->replicas.replicas[i].data.mutex);
+    }
+
     mutex_init(&fbs_dev->data.mutex);
+
+    return;
+    
+replica_fail:
+    fbs_debug("failed to initialize replicas!\n");
+    // TODO: free memory and return an error
 }
 
 module_init(fbs_init);
