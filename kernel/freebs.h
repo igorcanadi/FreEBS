@@ -23,6 +23,7 @@ struct freebs_socket {
     struct sockaddr_in servaddr;
     struct socket    *socket;
     struct workqueue_struct *work_queue; /* queue of freebs_requests to send */
+    struct workqueue_struct *recv_queue; /* queue of commands to be received */
 };
 
 //typedef unsigned int sector_t;
@@ -119,6 +120,15 @@ struct freebs_device {
     struct replica_list replicas;
 };
 
+/*
+ * This represents user data stored in each socket
+ */
+struct sk_user_data {
+    struct freebs_device *fbs_dev;
+    int replica;
+    struct work_struct work;
+};
+
 /* returns 1 if it was successful,
  * returns 0 if there was no data socket.
  * so wherever you are going to use the data.socket, e.g. do
@@ -147,5 +157,7 @@ static inline void freebs_put_data_sock(struct freebs_device *fbs_dev)
 int freebs_send(struct freebs_device *, struct socket *,
                 void *, size_t, unsigned);
 int freebs_init_socks(struct freebs_device *);
+int establish_connections(struct freebs_device *);
+int install_callbacks(struct freebs_device *);
 
 #endif

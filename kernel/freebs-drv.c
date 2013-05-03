@@ -18,6 +18,7 @@
 #include <linux/kthread.h>
 #include <linux/slab.h>
 #include <net/sock.h>
+#include <net/tcp_states.h>
 
 #define FREEBS_DEVICE_SIZE (1048576) // in 512-byte sectors
 
@@ -228,12 +229,13 @@ static void _bsdevice_cleanup(struct freebs_device *fbs_dev)
  * This is the receiver thread; on startup, it loops, reading from the socket
  * and completing requests.
  */
-int freebs_receiver(void *data)
+void freebs_receiver(struct work_struct *work) 
+//int freebs_receiver(void *data)
 {
-    struct freebs_device *fbs_dev = data;
+    struct sk_user_data *data = container_of(work, struct sk_user_data, work);
+    struct freebs_device *fbs_dev = data->fbs_dev;
     struct fbs_response res;
     struct freebs_request *req;
-    //struct socket *sock = fbs_dev->replicas.replicas[0].data.socket;
     int rv, status, bytesRead;
     uint32_t req_num;
     
@@ -275,8 +277,6 @@ int freebs_receiver(void *data)
     }
 
     _bsdevice_cleanup(fbs_dev);
-    
-    return -1;
 }
 
 void freebs_sender(struct work_struct *work) 
@@ -456,18 +456,16 @@ static void fbs_cleanup(void)
 int bsdevice_init(struct freebs_device *fbs_dev)
 {
     int r;
-    struct sockaddr_in *servaddr;
-    struct socket *sock;
+    //struct sockaddr_in *servaddr;
+    //struct socket *sock;
 
     if(freebs_init_socks(fbs_dev))
         return -1;
 
-    fbs_dev->replicas.replicas[0].data.work_queue = create_singlethread_workqueue("fbs_req");
-    if (!fbs_dev->replicas.replicas[0].data.work_queue) {
-        fbs_err("error creating workqueue\n");
+    if (install_callbacks(fbs_dev))
         return -1;
-    }
 
+    /*
     servaddr = &fbs_dev->replicas.replicas[0].data.servaddr;
     memset(servaddr, 0, sizeof(struct sockaddr_in));
     r = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &sock);
@@ -481,23 +479,17 @@ int bsdevice_init(struct freebs_device *fbs_dev)
     //servaddr->sin_addr.s_addr = in_aton("127.0.0.1");
     servaddr->sin_addr.s_addr = in_aton("192.168.56.10");
     //servaddr->sin_addr.s_addr = in_aton("128.105.15.148");
+    */
 
-    r = sock->ops->connect(sock, (struct sockaddr *)servaddr, sizeof(struct sockaddr), O_RDWR);
-
-    if (r) {
+    if ((r = establish_connections(fbs_dev))) {
         printk(KERN_ERR "error connecting: %d\n", r);
         return r;
     }
 
     INIT_LIST_HEAD(&fbs_dev->in_flight);
-    //INIT_LIST_HEAD(&fbs_dev->rq_queue);
-    //sema_init(&fbs_dev->rq_queue_sem, 0);
     mutex_init(&fbs_dev->in_flight_l);
-    //mutex_init(&fbs_dev->rq_mutex);
-    //up(&fbs_dev->rq_queue_sem);
 
-    fbs_dev->receiver = kthread_run(freebs_receiver, fbs_dev, "fbs");
-    //fbs_dev->sender = kthread_run(freebs_sender, fbs_dev, "fbs");
+    //fbs_dev->receiver = kthread_run(freebs_receiver, fbs_dev, "fbs");
 
     fbs_dev->size = FREEBS_DEVICE_SIZE;
 
@@ -642,6 +634,72 @@ int freebs_send(struct freebs_device *fbs_dev, struct socket *sock,
 }
 
 /*
+ * Tries to establish a connection with each device. Returns 0
+ * on success, -1 on failure.
+ */
+int establish_connections(struct freebs_device *fbs_dev) 
+{
+    struct sockaddr_in *servaddr;
+    struct socket *sock;
+    int r, i;
+
+    for (i = 0; i < num_replicas; i++) {
+        sock = fbs_dev->replicas.replicas[i].data.socket;
+        servaddr = &fbs_dev->replicas.replicas[i].data.servaddr;
+
+        r = sock->ops->connect(sock, (struct sockaddr *)servaddr, sizeof(struct sockaddr), O_RDWR);
+
+        if (r) {
+            printk(KERN_ERR "error connecting: %d\n", r);
+            return r;
+        }
+    }
+
+    return 0;
+}
+
+static void fbs_sock_data_ready(struct sock *sk, int count_unused)
+{
+	struct sk_user_data *data = sk->sk_user_data;
+    int replica = data->replica;
+    struct workqueue_struct *recv_queue = 
+        data->fbs_dev->replicas.replicas[replica].data.recv_queue;
+
+    /*
+	if (atomic_read(&con->msgr->stopping)) {
+		return;
+	}
+    */
+
+	if (sk->sk_state != TCP_CLOSE_WAIT) {
+        fbs_debug("data ready; enqueueing...\n");
+        queue_work(recv_queue, &data->work);
+	}
+}
+
+/*
+ * Installs callbacks to sockets
+ */
+int install_callbacks(struct freebs_device *fbs_dev) 
+{
+    struct socket *sock;
+    struct sk_user_data *usr_data;
+    int i;
+
+    for (i = 0; i < num_replicas; i++) {
+        if (!(usr_data = kzalloc(sizeof(*usr_data), GFP_KERNEL)))
+            return -ENOMEM;
+        usr_data->replica = i;
+        usr_data->fbs_dev = fbs_dev;
+        INIT_WORK(&usr_data->work, freebs_receiver);
+        sock = fbs_dev->replicas.replicas[i].data.socket;
+        sock->sk->sk_user_data = usr_data;
+        sock->sk->sk_data_ready = fbs_sock_data_ready;
+    }
+    return 0;
+}
+
+/*
  * Returns 0 on success, -1 on failure
  */
 int freebs_init_socks(struct freebs_device *fbs_dev)
@@ -651,6 +709,10 @@ int freebs_init_socks(struct freebs_device *fbs_dev)
     struct socket *sock;
     int r, i;
 
+    if (num_replicas < 1) {
+        fbs_err("must specify at least one replica!");
+        return -1;
+    }
     fbs_debug("initializing %d replicas...\n", num_replicas);
     memset(&fbs_dev->replicas, 0, sizeof(fbs_dev->replicas));
     if (!(fbs_dev->replicas.replicas = kzalloc(sizeof(*fbs_dev->replicas.replicas) * num_replicas,
@@ -670,6 +732,16 @@ int freebs_init_socks(struct freebs_device *fbs_dev)
         servaddr->sin_addr.s_addr = in_aton(replica_ips[i]);
         replica->data.socket = sock;
         mutex_init(&fbs_dev->replicas.replicas[i].data.mutex);
+        fbs_dev->replicas.replicas[i].data.work_queue = create_singlethread_workqueue("fbs_req");
+        if (!fbs_dev->replicas.replicas[i].data.work_queue) {
+            fbs_err("error creating workqueue\n");
+            return -1;
+        }
+        fbs_dev->replicas.replicas[i].data.recv_queue = create_singlethread_workqueue("fbs_req");
+        if (!fbs_dev->replicas.replicas[i].data.recv_queue) {
+            fbs_err("error creating workqueue\n");
+            return -1;
+        }
     }
 
     return 0;
