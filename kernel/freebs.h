@@ -109,7 +109,6 @@ struct freebs_device {
     struct request_queue *fbs_queue;
     /* This is kernel's representation of an individual disk device */
     struct gendisk *fbs_disk;
-    struct freebs_socket data;
     atomic_t            packet_seq;
     atomic_t            req_num;
     struct list_head    in_flight;    /* requests that have been sent to replica
@@ -130,11 +129,11 @@ struct freebs_device {
  */
 static inline int freebs_get_data_sock(struct freebs_device *fbs_dev)
 {
-    mutex_lock(&fbs_dev->data.mutex);
+    mutex_lock(&fbs_dev->replicas.replicas[0].data.mutex);
     /* freebs_disconnect() could have called freebs_free_sock()
      * while we were waiting in down()... */
-    if (unlikely(fbs_dev->data.socket == NULL)) {
-        mutex_unlock(&fbs_dev->data.mutex);
+    if (unlikely(fbs_dev->replicas.replicas[0].data.socket == NULL)) {
+        mutex_unlock(&fbs_dev->replicas.replicas[0].data.mutex);
         return 0;
     }
     return 1;
@@ -142,11 +141,11 @@ static inline int freebs_get_data_sock(struct freebs_device *fbs_dev)
 
 static inline void freebs_put_data_sock(struct freebs_device *fbs_dev)
 {
-    mutex_unlock(&fbs_dev->data.mutex);
+    mutex_unlock(&fbs_dev->replicas.replicas[0].data.mutex);
 }
 
 int freebs_send(struct freebs_device *, struct socket *,
                 void *, size_t, unsigned);
-void freebs_init_socks(struct freebs_device *);
+int freebs_init_socks(struct freebs_device *);
 
 #endif

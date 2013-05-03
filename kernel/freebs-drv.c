@@ -58,8 +58,8 @@ static int fbs_close(struct gendisk *disk, fmode_t mode)
 static void cleanup_sock(struct freebs_device *fbs_dev) 
 {
     if (freebs_get_data_sock(fbs_dev)) {
-        sock_release(fbs_dev->data.socket);
-        fbs_dev->data.socket = NULL;  /* I'm assuming that sock_release frees the memory --
+        sock_release(fbs_dev->replicas.replicas[0].data.socket);
+        fbs_dev->replicas.replicas[0].data.socket = NULL;  /* I'm assuming that sock_release frees the memory --
                                         sucks if I'm wrong */
         freebs_put_data_sock(fbs_dev);
     }
@@ -83,7 +83,7 @@ static int fbs_recv(struct freebs_device *fbs_dev, void *buf, size_t size)
 	set_fs(KERNEL_DS);
 
 	for (;;) {
-		rv = sock_recvmsg(fbs_dev->data.socket, &msg, size, msg.msg_flags);
+		rv = sock_recvmsg(fbs_dev->replicas.replicas[0].data.socket, &msg, size, msg.msg_flags);
 		if (rv == size)
 			break;
 
@@ -182,8 +182,8 @@ int complete_read(struct freebs_device *fbs_dev, struct request *req) {
 
 int try_connect_again(struct freebs_device *fbs_dev)
 {
-    struct socket *sock = fbs_dev->data.socket;
-    struct sockaddr_in *servaddr = &fbs_dev->data.servaddr;
+    struct socket *sock = fbs_dev->replicas.replicas[0].data.socket;
+    struct sockaddr_in *servaddr = &fbs_dev->replicas.replicas[0].data.servaddr;
 
     while (sock->ops->connect(sock, 
                                (struct sockaddr *)servaddr, 
@@ -233,7 +233,7 @@ int freebs_receiver(void *data)
     struct freebs_device *fbs_dev = data;
     struct fbs_response res;
     struct freebs_request *req;
-    //struct socket *sock = fbs_dev->data.socket;
+    //struct socket *sock = fbs_dev->replicas.replicas[0].data.socket;
     int rv, status, bytesRead;
     uint32_t req_num;
     
@@ -316,7 +316,7 @@ void freebs_sender(struct work_struct *work)
     if(!freebs_get_data_sock(fbs_dev)) 
         goto fail;
 
-    ok = sizeof(hdr) == freebs_send(fbs_dev, fbs_dev->data.socket, &hdr, sizeof(hdr), 0);
+    ok = sizeof(hdr) == freebs_send(fbs_dev, fbs_dev->replicas.replicas[0].data.socket, &hdr, sizeof(hdr), 0);
     if (!ok) 
         goto fail;
 
@@ -330,7 +330,7 @@ void freebs_sender(struct work_struct *work)
                        "This may lead to data truncation.\n",
                        bv->bv_len, KERNEL_SECTOR_SIZE);
             sectors = bv->bv_len / KERNEL_SECTOR_SIZE;
-            ok = sectors * KERNEL_SECTOR_SIZE == freebs_send(fbs_dev, fbs_dev->data.socket, buffer, sectors * KERNEL_SECTOR_SIZE, 0);
+            ok = sectors * KERNEL_SECTOR_SIZE == freebs_send(fbs_dev, fbs_dev->replicas.replicas[0].data.socket, buffer, sectors * KERNEL_SECTOR_SIZE, 0);
             if (!ok) 
                 goto fail;
             sector_offset += sectors;
@@ -377,7 +377,7 @@ static int fbs_transfer(struct request *req)
                                             done in the kmem_cache constructor, but that would require
                                             each work_queue to have its own kmem_cache */
     fbs_debug("enqueueing request num %d\n", fbs_req->req_num);
-    queue_work(fbs_dev->data.work_queue, work_item);
+    queue_work(fbs_dev->replicas.replicas[0].data.work_queue, work_item);
 
     return ret;
 }
@@ -456,23 +456,26 @@ static void fbs_cleanup(void)
 int bsdevice_init(struct freebs_device *fbs_dev)
 {
     int r;
-    struct sockaddr_in *servaddr = &fbs_dev->data.servaddr;
+    struct sockaddr_in *servaddr;
     struct socket *sock;
 
-    fbs_dev->data.work_queue = create_singlethread_workqueue("fbs_req");
-    if (!fbs_dev->data.work_queue) {
+    if(freebs_init_socks(fbs_dev))
+        return -1;
+
+    fbs_dev->replicas.replicas[0].data.work_queue = create_singlethread_workqueue("fbs_req");
+    if (!fbs_dev->replicas.replicas[0].data.work_queue) {
         fbs_err("error creating workqueue\n");
         return -1;
     }
 
-    freebs_init_socks(fbs_dev);
+    servaddr = &fbs_dev->replicas.replicas[0].data.servaddr;
     memset(servaddr, 0, sizeof(struct sockaddr_in));
     r = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &sock);
     if (r) {
         printk(KERN_ERR "error creating socket: %d", r);
         return r;
     }
-    fbs_dev->data.socket = sock;
+    fbs_dev->replicas.replicas[0].data.socket = sock;
     servaddr->sin_family = AF_INET;
     servaddr->sin_port = htons(9000);
     //servaddr->sin_addr.s_addr = in_aton("127.0.0.1");
@@ -562,8 +565,8 @@ int bsdevice_init(struct freebs_device *fbs_dev)
 void bsdevice_cleanup(struct freebs_device *fbs_dev)
 {
     _bsdevice_cleanup(fbs_dev);
-    flush_workqueue(fbs_dev->data.work_queue);
-    destroy_workqueue(fbs_dev->data.work_queue); 
+    flush_workqueue(fbs_dev->replicas.replicas[0].data.work_queue);
+    destroy_workqueue(fbs_dev->replicas.replicas[0].data.work_queue); 
     del_gendisk(fbs_dev->fbs_disk);
     put_disk(fbs_dev->fbs_disk);
     blk_cleanup_queue(fbs_dev->fbs_queue);
@@ -638,7 +641,10 @@ int freebs_send(struct freebs_device *fbs_dev, struct socket *sock,
     return sent;
 }
 
-void freebs_init_socks(struct freebs_device *fbs_dev)
+/*
+ * Returns 0 on success, -1 on failure
+ */
+int freebs_init_socks(struct freebs_device *fbs_dev)
 {
     struct sockaddr_in *servaddr;
     struct replica *replica;
@@ -666,13 +672,12 @@ void freebs_init_socks(struct freebs_device *fbs_dev)
         mutex_init(&fbs_dev->replicas.replicas[i].data.mutex);
     }
 
-    mutex_init(&fbs_dev->data.mutex);
-
-    return;
+    return 0;
     
 replica_fail:
     fbs_debug("failed to initialize replicas!\n");
     // TODO: free memory and return an error
+    return -1;
 }
 
 module_init(fbs_init);
