@@ -17,7 +17,6 @@
 
 
 // Prototypes
-void *acceptConnection(void *arg);
 void *handleConnection(void *arg);
 void *makeConnection(void *arg);
 
@@ -35,11 +34,14 @@ void handleExit(int sig);
 volatile sig_atomic_t eflag = 0;
 ReplicaManager *rmgr;
 ConnectionManager cmgr;
+pthread_cond_t ready = PTHREAD_COND_INITIALIZER;           // Forced order among req. necessary???
+pthread_mutex_t ready_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int main(int argc, char *argv[]){
     int status = 0;
     struct sigaction act;
-    pthread_t accept_thread, handle_thread, conn_thread;
+    pthread_t conn_thread, d_thread, p_thread, n_thread;
+    enum conn_type d = CONN_DRIVER, p = CONN_PREV, n = CONN_NEXT;
 
     bool create;
     char *path = NULL, *next = NULL, *prev = NULL;
@@ -90,6 +92,7 @@ int main(int argc, char *argv[]){
                     printf("Previous name : %s\n", argv[i+1]);
                     prev = argv[i+1];
                     cmgr.update(CONN_PREV, prev);
+                    cmgr.connect(CONN_PREV);
                     i++;
                 }
                 break;
@@ -128,11 +131,13 @@ int main(int argc, char *argv[]){
     // Sync
    
 //    pthread_create(&conn_thread, NULL, makeConnection, NULL);
-    pthread_create(&accept_thread, NULL, acceptConnection, NULL);
-    pthread_create(&handle_thread, NULL, handleConnection, NULL);
+    pthread_create(&d_thread, NULL, handleConnection, &d);
+    pthread_create(&p_thread, NULL, handleConnection, &p);
+    pthread_create(&n_thread, NULL, handleConnection, &n);
 
-    pthread_join(accept_thread, NULL);
-    pthread_join(handle_thread, NULL);
+    pthread_join(d_thread, NULL);
+    pthread_join(p_thread, NULL);
+    pthread_join(n_thread, NULL);
 //    pthread_join(conn_thread, NULL);
 
     printf("Exiting main\n");
@@ -141,56 +146,33 @@ int main(int argc, char *argv[]){
     return 0;
 }
 
-// Just sits here and waits for a connection
-void *acceptConnection(void *arg){
-    struct pollfd fds[CONN_TYPE_LEN];
-    unsigned i;
-
-    while(!eflag){
-        while(cmgr.poll_srv(fds) <= 0){
-            if (eflag){
-                pthread_exit(0);
-            }
-        }
-        for(i = 0; i < CONN_TYPE_LEN; i++){
-            if (fds[i].revents & POLLIN){
-                printf("Accept connection %d\n", i);
-                cmgr.accept(static_cast<conn_type>(i));
-            }
-        }
-    }
-    pthread_exit(0);
-}
-
 void *handleConnection(void *arg){
     struct pollfd fds[CONN_TYPE_LEN];
-    unsigned i; 
+    enum conn_type sel = *((enum conn_type *)arg);
+
     while(!eflag){
-        while(cmgr.poll_conn(fds) <= 0){
-            if (eflag){
-                pthread_exit(0);
-            }
+        // Accept connection
+        while(cmgr.poll_srv(fds) <= 0){ 
+	        if (eflag) {
+                pthread_exit(0); 
+	        }
+	    }
+        if (fds[sel].revents & POLLIN){
+            printf("Accepted connection from %d\n", sel);
+            cmgr.accept(sel);
+        } else {
+            continue;
         }
-        // Serve the request
-        for(i = 0; i < CONN_TYPE_LEN; i++){
-            if (fds[i].revents & (POLLHUP | POLLERR | POLLNVAL)){
-               cmgr.close(static_cast<conn_type>(i));
-            } else if (fds[i].revents & POLLIN){
-                switch(i){
-                case CONN_DRIVER:
-		    printf("Accepted DRIVER connection\n");
-                    handleDriverConnection(static_cast<enum conn_type>(i));
-                    break;
-                case CONN_NEXT:
-		    printf("Accepted NEXT connection\n");
-                case CONN_PREV:
-                    if (i == CONN_PREV){
-                        printf("Accepted PREV connection\n");
-                    }
-                    handleReplicaConnection(static_cast<enum conn_type>(i));
-                    break;
-                }
-            }
+        switch(sel){
+        case CONN_DRIVER:
+            handleDriverConnection(sel);
+            break;
+        case CONN_NEXT:
+            while(cmgr.connect(sel) < 0);
+        case CONN_PREV:
+            printf("Established connection to %d\n");
+            handleReplicaConnection(sel);
+            break;
         }
     }
     pthread_exit(0);
@@ -225,12 +207,21 @@ void handleDriverConnection(enum conn_type src_type){
     int off, bytesRead = 0;
     int status = 0;
     struct fbs_header header;
+    struct pollfd fds[CONN_TYPE_LEN];
 
     while (!eflag) {
+        while(cmgr.poll_conn(fds) <= 0){
+            if (eflag){
+                pthread_exit(0);
+            }
+        }
+        if (!(fds[src_type].revents & POLLIN)){
+            continue;
+        }
         if ((bytesRead = cmgr.recv_fr_cli(src_type, (char *)&buffer, sizeof(buffer))) < 0){
             perror("ERROR reading from socket");
             cmgr.close(src_type);
-	    return;
+	        return;
         }
         // Switch endianness
         req.command = ntohs(buffer.command);
@@ -259,7 +250,7 @@ void handleDriverConnection(enum conn_type src_type){
         }
     }
 #ifdef DEBUG
-    printf("Exiting handleConnection");
+    printf("Exiting handleDriverConnection");
 #endif
     cmgr.close(src_type);
     return;
@@ -331,7 +322,6 @@ int handleWriteRequest(enum conn_type src_type, struct fbs_request &request){
     buffer = new char[request.len];
 
 try{
-
 #ifdef DEBUG
     printf("Server: Write to offset %u\n", request.offset * FBS_SECTORSIZE);
 #endif
@@ -344,8 +334,8 @@ try{
     prop_fbs_hdr.req_num = htonl(request.req_num);
     prop_fbs_hdr.seq_num = htonl(request.seq_num);
 
-    cmgr.send_to_srv(CONN_NEXT, (char *)&prop_request, sizeof(rmgr_sync_request));
-    cmgr.send_to_srv(CONN_NEXT, (char *)&prop_fbs_hdr, sizeof(fbs_request));
+    cmgr.send_to_srv(CONN_NEXT, (char *)&prop_request, sizeof(prop_request));
+    cmgr.send_to_srv(CONN_NEXT, (char *)&prop_fbs_hdr, sizeof(prop_fbs_hdr));
 
     if ((bytesRW = cmgr.recv_fr_cli(src_type, buffer, request.len)) < 0){
         throw bytesRW;
@@ -453,15 +443,16 @@ int handleSyncRequest(enum conn_type src_type, uint64_t seq_num){
 }
 
 int handlePropRequest(enum conn_type type){
-    struct fbs_header buffer;
+    struct fbs_header buffer;   // 18 bytes?
     struct fbs_request req;
     int off = 0, bytesRead = 0;
 
     // Grab FBS header
-    if ((bytesRead = cmgr.recv_fr_cli(CONN_PREV, (char *)&buffer, sizeof(buffer))) < 0){
-	return bytesRead;
+    if ((bytesRead = cmgr.recv_fr_cli(CONN_PREV, (char *)&buffer, 
+            sizeof(buffer))) < 0){
+	    return bytesRead;
     }
-    
+   
     req.command = ntohs(buffer.command);
     req.len = ntohl(buffer.len);
     req.offset = ntohl(buffer.offset);
@@ -469,8 +460,6 @@ int handlePropRequest(enum conn_type type){
     req.req_num = ntohl(buffer.req_num);
 
 #ifdef DEBUG    
-    printf("Server buf: %u %lu %lu %lu %lu\n", buffer.command, buffer.len,
-       buffer.offset, buffer.seq_num, buffer.req_num);
     printf("Server req: %u %lu %lu %lu %lu\n", req.command, req.len,
        req.offset, req.seq_num, req.req_num);
 #endif
@@ -483,7 +472,7 @@ void handleExit(int sig){
     if (sig & (SIGINT | SIGTERM | SIGQUIT | SIGABRT)){
         printf("Exit signal received\n");
         eflag = 1;
-//        exit(0); // Figure out how to get this to do lsvd_close....?
+        exit(0); // Figure out how to get this to do lsvd_close....?
     }
 }
 

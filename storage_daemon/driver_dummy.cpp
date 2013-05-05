@@ -57,7 +57,7 @@ int main(int argc, char **argv){
         }
     }
 
-    for(unsigned version = 1, off = 0; version < 2; version++, off++){
+    for(unsigned version = 1, off = 0; version < 11; version++, off++){
         header.command = htons(FBS_WRITE);
         header.len = htonl(sizeof(write_buf));
         header.offset = htonl(off);
@@ -95,6 +95,7 @@ int main(int argc, char **argv){
                 printf("driver_dummy: write success\n");
             } else {
                 printf("driver_dummy: write fail\n");
+                exit(1);
             }
 	}
 //******************* READ
