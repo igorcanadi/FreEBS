@@ -57,7 +57,7 @@ int main(int argc, char **argv){
         }
     }
 
-    for(unsigned version = 1, off = 0; version < 12; version++, off++){
+    for(unsigned version = 1, off = 0; version < 2; version++, off++){
         header.command = htons(FBS_WRITE);
         header.len = htonl(sizeof(write_buf));
         header.offset = htonl(off);

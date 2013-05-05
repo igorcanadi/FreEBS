@@ -9,47 +9,9 @@
 #include "replicamgr.h"
 
 
-ReplicaManager::ReplicaManager(const char *prev, const char *next){
-    // Open sockets for communication with controller and next replica
-    int status = 0;
-    struct hostent *he;
-
-    pthread_mutex_init(&p_lock, NULL);
-    pthread_mutex_init(&n_lock, NULL);
-
-    // Set up connection to prev Replica
-    prev_addr.sin_family = AF_INET;
-    prev_addr.sin_port=htons(SYNC_PORT);  
-    if (prev != NULL && *prev != '\0'){
-        pConn == true;
-        he = gethostbyname(prev);
-        printf("%s\n", prev);
-        memcpy(&prev_addr.sin_addr.s_addr, he->h_addr, he->h_length);
-        if (conn_prev() < 0){
-            perror("ERROR connecting to prev");
-            exit(1);
-        }
-    } else {
-        pConn == false;
-    }
-
-    // Set up connection to next Replica
-    next_addr.sin_family = AF_INET;
-    next_addr.sin_port=htons(PROP_PORT);
-    if (next != NULL && *prev != '\0'){
-        nConn == true;
-        he = gethostbyname(next);
-        memcpy(&next_addr.sin_addr.s_addr, he->h_addr, he->h_length);
-    } else {
-        nConn == false;
-    }
-}    
+ReplicaManager::ReplicaManager(){}
 
 ReplicaManager::~ReplicaManager(){
-    close(pSock);
-    close(nSock);
-    pthread_mutex_destroy(&p_lock);
-    pthread_mutex_destroy(&n_lock);
     close_lsvd(local);
 }
 
@@ -60,6 +22,10 @@ ReplicaManager::~ReplicaManager(){
  * */
 int ReplicaManager::create(const char *pathname, uint64_t size){
     local = create_lsvd(pathname, size);
+    if (local == NULL){
+        return -1;
+    }
+    return 0;
 }   
 
 /*
@@ -68,48 +34,10 @@ int ReplicaManager::create(const char *pathname, uint64_t size){
  * */
 int ReplicaManager::open(const char *pathname){
     local = open_lsvd(pathname);
-}
-
-/*
- * conn_prev()  Connect to previous replica
- * */
-int ReplicaManager::conn_prev(){
-    int sock, status;
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-        return sock;
+    if (local == NULL){
+        return -1;
     }
-
-    status = connect(sock, (sockaddr *)&prev_addr, sizeof(prev_addr));
-    if (status < 0){
-        return status;
-    }
-
-    pthread_mutex_lock(&p_lock);
-    pSock = sock;
-    pthread_mutex_lock(&p_lock);
-
-    return sock;
-}
-
-/*
- * conn_next()  Connect to next replica
- * */
-int ReplicaManager::conn_next(){
-    int sock, status;
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-        return sock;
-    }
-
-    status = connect(sock, (sockaddr *)&next_addr, sizeof(next_addr));
-    if (status < 0){
-        return status;
-    }
-
-    pthread_mutex_lock(&n_lock);
-    nSock = sock;
-    pthread_mutex_unlock(&n_lock);
-
-    return sock;
+    return 0;
 }
 
 /*
@@ -270,6 +198,7 @@ char * ReplicaManager::get_writes_since(uint64_t version, size_t *size){
     return get_writes_lsvd(local, version, size);
 }
 
+#if 0
 // Send sync request
 void ReplicaManager::sync(){
     struct rmgr_sync_request req;
@@ -279,9 +208,9 @@ void ReplicaManager::sync(){
     int bytesRead = 0;
     int conn;
 
-    pthread_mutex_lock(&p_lock);
+//    pthread_mutex_lock(&p_lock);
     conn = pSock;
-    pthread_mutex_unlock(&p_lock);
+//    pthread_mutex_unlock(&p_lock);
 
     req.command = htons(RMGR_SYNC);
     req.seq_num = htonl((uint32_t)(get_version(local)));
@@ -326,39 +255,4 @@ void ReplicaManager::sync(){
     printf("Sync\n");
 }
 
-
-
-void ReplicaManager::update(struct in_addr *prev, struct in_addr *next){
-    if (prev != NULL && prev_addr.sin_addr.s_addr != prev->s_addr){
-        prev_addr.sin_addr.s_addr = prev->s_addr;
-        close(pSock);
-    }
-
-
-    if (next != NULL && next_addr.sin_addr.s_addr != next->s_addr){
-        next_addr.sin_addr.s_addr = next->s_addr;
-        close(nSock);
-    }
-    
-    return;
-}
-
-// Send data in buf to next replica
-void ReplicaManager::send_next(char * buf, size_t len){
-    int conn, off, bytesWritten;
-    pthread_mutex_lock(&n_lock);
-    conn = nSock;
-    pthread_mutex_unlock(&n_lock);
-    printf("\n");
-    if (conn >= 0){
-        for (off = 0; off < len; off += bytesWritten){
-            if((bytesWritten = send(conn, buf, len, 0)) < 0){
-                perror("Failed send next");
-                return;
-            }
-            printf("send_next wrote %d bytes\n", bytesWritten);
-        }
-//	printf("send_next %d bytes\n", off);
-    }
-}
-
+#endif

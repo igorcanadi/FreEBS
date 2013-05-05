@@ -9,7 +9,7 @@ int main(){
     char *write, *read;   
     bool fail = false;
 
-    ReplicaManager r("localhost", "localhost");
+    ReplicaManager r;
     r.create("/tmp/tmp.dsk", GB / LSVD_SECTORSIZE);
    
 //    r.open("/tmp/tmp.dsk");
