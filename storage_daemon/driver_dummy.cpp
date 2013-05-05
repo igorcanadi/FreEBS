@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <pthread.h>
+#include <unistd.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include "replicamgr.h"
@@ -135,6 +135,10 @@ int main(int argc, char **argv){
             }
         }
 
+    }
+
+    for (int i = 0; i < argc - 1; i++){
+        close(sock[i]);
     }
 
     return 0;

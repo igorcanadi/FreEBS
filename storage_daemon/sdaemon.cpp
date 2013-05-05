@@ -215,6 +215,10 @@ void handleDriverConnection(enum conn_type src_type){
                 pthread_exit(0);
             }
         }
+        if (fds[src_type].revents & (POLLHUP | POLLERR | POLLNVAL)){
+            cmgr.close(src_type);
+            return;
+        }
         if (!(fds[src_type].revents & POLLIN)){
             continue;
         }
