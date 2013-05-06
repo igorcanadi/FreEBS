@@ -7,7 +7,7 @@
 #include <linux/workqueue.h>
 
 #define fbs_printk(type, fmt, ...) \
-  printk(type fmt, ##__VA_ARGS__)
+  printk(type "%s:%d - " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
 
 #define fbs_info(fmt, ...) \
   fbs_printk(KERN_INFO, fmt, ##__VA_ARGS__) //"%s:%d - " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
@@ -23,7 +23,7 @@ struct freebs_socket {
     struct sockaddr_in servaddr;
     struct socket    *socket;
     struct workqueue_struct *work_queue; /* queue of freebs_requests to send */
-    struct workqueue_struct *recv_queue; /* queue of commands to be received */
+    struct task_struct *receiver;
 };
 
 //typedef unsigned int sector_t;
@@ -36,6 +36,12 @@ struct freebs_request {
     unsigned int req_num;
     struct request *req;
     struct list_head    queue;
+    atomic_t num_commits;
+};
+
+struct sender_work {
+    struct freebs_request *fbs_req;
+    struct freebs_socket *fbs_sock;
     struct work_struct work;
 };
 
@@ -82,12 +88,23 @@ static inline fbs_sector_t bytes_to_freebs(unsigned int bytes)
 extern int bsdevice_init(struct freebs_device *);
 extern void bsdevice_cleanup(struct freebs_device *);
 
+struct freebs_device;
+
+/*
+ * This represents data passed to each receiver thread
+ */
+struct receiver_data {
+    struct freebs_device *fbs_dev;
+    int replica;
+};
+
 /*
  * Represents a replica manager
  */
 struct replica {
     uint64_t seq_num;
     struct freebs_socket data;
+    struct receiver_data receiver_data;
 };
 
 /*
@@ -114,20 +131,18 @@ struct freebs_device {
     atomic_t            req_num;
     struct list_head    in_flight;    /* requests that have been sent to replica
                                          manager but have not been completed */
-    struct mutex        in_flight_l;
-    struct task_struct  *receiver;
-    struct task_struct  *sender;
+    rwlock_t            in_flight_l;
+    //struct task_struct  *receiver;
+    //struct task_struct  *sender;
     struct replica_list replicas;
+    int quorum; /* how many replicas must claim to have committed the write
+                   for it to be a success */
 };
 
-/*
- * This represents user data stored in each socket
- */
-struct sk_user_data {
-    struct freebs_device *fbs_dev;
-    int replica;
-    struct work_struct work;
-};
+static inline struct freebs_socket *primary(struct freebs_device *fbs_dev)
+{
+    return &fbs_dev->replicas.replicas[0].data;
+}
 
 /* returns 1 if it was successful,
  * returns 0 if there was no data socket.
@@ -137,27 +152,26 @@ struct sk_user_data {
  *	CODE();
  * freebs_put_data_sock(fbs_dev);
  */
-static inline int freebs_get_data_sock(struct freebs_device *fbs_dev)
+static inline int freebs_get_data_sock(struct freebs_socket *fbs_sock)
 {
-    mutex_lock(&fbs_dev->replicas.replicas[0].data.mutex);
+    mutex_lock(&fbs_sock->mutex);
     /* freebs_disconnect() could have called freebs_free_sock()
      * while we were waiting in down()... */
-    if (unlikely(fbs_dev->replicas.replicas[0].data.socket == NULL)) {
-        mutex_unlock(&fbs_dev->replicas.replicas[0].data.mutex);
+    if (unlikely(fbs_sock->socket == NULL)) {
+        mutex_unlock(&fbs_sock->mutex);
         return 0;
     }
     return 1;
 }
 
-static inline void freebs_put_data_sock(struct freebs_device *fbs_dev)
+static inline void freebs_put_data_sock(struct freebs_socket *fbs_sock)
 {
-    mutex_unlock(&fbs_dev->replicas.replicas[0].data.mutex);
+    mutex_unlock(&fbs_sock->mutex);
 }
 
 int freebs_send(struct freebs_device *, struct socket *,
                 void *, size_t, unsigned);
 int freebs_init_socks(struct freebs_device *);
 int establish_connections(struct freebs_device *);
-int install_callbacks(struct freebs_device *);
 
 #endif
