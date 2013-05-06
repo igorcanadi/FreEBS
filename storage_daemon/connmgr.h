@@ -26,7 +26,6 @@ class ConnectionManager {
     // Locks
     pthread_mutex_t p_lock;       // For client connection
     pthread_mutex_t n_lock;       // For client connection
-    pthread_mutex_t cset_lock;    // For conn_set
 
 public:
     ConnectionManager();

@@ -37,6 +37,11 @@ int main(int argc, char **argv){
     int sock[QUORUM];
     int accepted = 0;
 
+    if (argc < 2){
+        printf("Not enough arguments");
+        exit(1);
+    }
+
     for (int i = 0; i < argc - 1; i++){
         he = gethostbyname(argv[i+1]);
 

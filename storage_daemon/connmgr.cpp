@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <fcntl.h>
 #include <string.h>
+#include <string>   // C++ stringz
 
 #include "connmgr.h"
 #include "replicamgr.h"
@@ -32,7 +32,6 @@ ConnectionManager::ConnectionManager(){
 
     pthread_mutex_init(&p_lock, NULL);
     pthread_mutex_init(&n_lock, NULL);
-    pthread_mutex_init(&cset_lock, NULL);
 
 }
 
@@ -46,7 +45,6 @@ ConnectionManager::~ConnectionManager(){
 
     pthread_mutex_destroy(&p_lock);
     pthread_mutex_destroy(&n_lock);
-    pthread_mutex_destroy(&cset_lock);
 
 }
 
@@ -68,10 +66,10 @@ int ConnectionManager::setup_srv(uint16_t port){
     }
 
     setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &setOpt, sizeof(setOpt));
-
+/*
     flags = fcntl(sockfd, F_GETFL, 0);
     fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
-
+*/
     if(bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0){
         perror("ERROR on bind");
         return -1;
@@ -95,7 +93,6 @@ int ConnectionManager::accept(enum conn_type sel){
 
     // Update fd_set with conn
     conn = ::accept(serv_set[sel].fd, (struct sockaddr *) &cli_addr, &clilen);
-    pthread_mutex_lock(&cset_lock);
     conn_set[sel].fd = conn;
     conn_set[sel].events = POLLIN;    // Requested
     conn_set[sel].revents = 0;
@@ -111,7 +108,6 @@ int ConnectionManager::accept(enum conn_type sel){
         break;
     }
 
-    pthread_mutex_unlock(&cset_lock);
     return conn;
 }
 
@@ -154,27 +150,37 @@ int ConnectionManager::connect(enum conn_type sel){
 }
 
 
-int ConnectionManager::update(enum conn_type sel, const char *hostname){
+int ConnectionManager::update(enum conn_type sel, const char *host){
     int status;
     struct sockaddr_in *addr;
     pthread_mutex_t *lock;
-    struct hostent *he = gethostbyname(hostname);
+    struct hostent *he = gethostbyname(host);
+    long long unsigned port;
+
+    struct addrinfo *res;
+    std::string port_str;      // Max port char len + null
+
     switch(sel){
     case CONN_PREV:
         addr = &p_addr;
         lock = &p_lock;
+        port = SYNC_PORT;
         break;
     case CONN_NEXT:
         addr = &n_addr;
         lock = &n_lock;
+        port = PROP_PORT;
 	break;
     default:
 	return -1;
     }
     
     pthread_mutex_lock(lock);
-    memcpy(&(addr->sin_addr.s_addr), he->h_addr, he->h_length);
+    port_str = std::to_string(port);
+    status = getaddrinfo(host, port_str.c_str(), NULL, &res);
+    memcpy(addr, res[0].ai_addr, res[0].ai_addrlen);
     pthread_mutex_unlock(lock);
+    freeaddrinfo(res);
 
     return 0;
 }
@@ -182,10 +188,10 @@ int ConnectionManager::update(enum conn_type sel, const char *hostname){
 // Wait for receipt of activity on established connections where we are the "server"
 int ConnectionManager::poll_conn(struct pollfd *fds){
     int status;
-//    pthread_mutex_lock(&cset_lock);
+
     status = poll(&conn_set[0], sizeof(conn_set)/sizeof(struct pollfd), 2);
     memcpy(fds, &conn_set[0], sizeof(conn_set));
-//    pthread_mutex_unlock(&cset_lock);
+
     return status;
 }
 
@@ -199,34 +205,36 @@ int ConnectionManager::poll_srv(struct pollfd *fds){
 // Send something to the client process
 int ConnectionManager::send_to_cli(enum conn_type sel, char * buf, size_t len){
     int off, bytes, fd;
-    pthread_mutex_lock(&cset_lock);
+
     fd = conn_set[sel].fd;
-    pthread_mutex_unlock(&cset_lock);
+
     for (off = 0, bytes = 0; off < len; off += bytes){
         bytes = send(fd, buf + off, len - off, 0);
         if (bytes < 0){
             return bytes;
         }
     }
+#ifdef DEBUG
     printf("send_to_cli: %d bytes\n", off);
-
+#endif
     return off;
 }
 
 // Recv from a client
 int ConnectionManager::recv_fr_cli(enum conn_type sel, char * buf, size_t len){
     int off, bytes, fd;
-    pthread_mutex_lock(&cset_lock);
+
     fd = conn_set[sel].fd;
-    pthread_mutex_unlock(&cset_lock);
+
     for (off = 0, bytes = 0; off < len; off += bytes){
         bytes = recv(fd, buf + off, len - off, 0);
-        if (bytes < 0){
+        if (bytes <= 0){
             return bytes;
         }
     }
+#ifdef DEBUG
     printf("recv_fr_cli: %d bytes\n", off);
-
+#endif
     return off;
 }
 
@@ -255,9 +263,9 @@ int ConnectionManager::send_to_srv(enum conn_type sel, char * buf, size_t len){
             return bytes;
         }
     }
-
+#ifdef DEBUG
     printf("send_to_srv: %d bytes\n", off);
-
+#endif
     return off;
 }
 
@@ -282,7 +290,7 @@ int ConnectionManager::recv_fr_srv(enum conn_type sel, char * buf, size_t len){
 
     for (off = 0, bytes = 0; off < len; off += bytes){
         bytes = recv(fd, buf + off, len - off, 0);
-        if (bytes < 0){
+        if (bytes <= 0){
             return bytes;
         }
     }

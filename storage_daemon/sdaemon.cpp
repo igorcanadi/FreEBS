@@ -18,7 +18,6 @@
 
 // Prototypes
 void *handleConnection(void *arg);
-void *makeConnection(void *arg);
 
 void handleDriverConnection(enum conn_type src_type);
 void handleReplicaConnection(enum conn_type src_type);
@@ -34,8 +33,6 @@ void handleExit(int sig);
 volatile sig_atomic_t eflag = 0;
 ReplicaManager *rmgr;
 ConnectionManager cmgr;
-pthread_cond_t ready = PTHREAD_COND_INITIALIZER;           // Forced order among req. necessary???
-pthread_mutex_t ready_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int main(int argc, char *argv[]){
     int status = 0;
@@ -130,7 +127,6 @@ int main(int argc, char *argv[]){
 
     // Sync
    
-//    pthread_create(&conn_thread, NULL, makeConnection, NULL);
     pthread_create(&d_thread, NULL, handleConnection, &d);
     pthread_create(&p_thread, NULL, handleConnection, &p);
     pthread_create(&n_thread, NULL, handleConnection, &n);
@@ -138,11 +134,12 @@ int main(int argc, char *argv[]){
     pthread_join(d_thread, NULL);
     pthread_join(p_thread, NULL);
     pthread_join(n_thread, NULL);
-//    pthread_join(conn_thread, NULL);
 
-    printf("Exiting main\n");
+    printf("Deleting rmgr\n");
 
     delete rmgr;    // Wait for all threads to finish then delete rmgr
+
+    printf("Exiting main\n");
     return 0;
 }
 
@@ -158,7 +155,7 @@ void *handleConnection(void *arg){
 	        }
 	    }
         if (fds[sel].revents & POLLIN){
-            printf("Accepted connection from %d\n", sel);
+            printf("Accepted connection from %d, fd=%d\n", sel, fds[sel].fd);
             cmgr.accept(sel);
         } else {
             continue;
@@ -170,30 +167,12 @@ void *handleConnection(void *arg){
         case CONN_NEXT:
             while(cmgr.connect(sel) < 0);
         case CONN_PREV:
-            printf("Established connection to %d\n");
+            printf("Established connection to %d\n", sel);
             handleReplicaConnection(sel);
             break;
         }
     }
     pthread_exit(0);
-}
-
-// Continually tries to connect as client to another process
-void *makeConnection(void *arg){
-    unsigned i;
-    long long unsigned bleh;
-    int fds[CONN_TYPE_LEN] = { -1, -1, -1};
-    while(!eflag){
-        for(i = 0; i < CONN_TYPE_LEN; i++){
-            if (fds[i] < 0 || 
-                getsockopt(fds[i], SOL_SOCKET, SO_ERROR, NULL, NULL) < 0) { 
-                fds[i] = cmgr.connect(static_cast<conn_type>(i));
-                if (fds[i] >= 0){
-                    printf("Connected to %d\n", fds[i]);
-                }
-            }
-        }
-    }
 }
 
 /*
@@ -210,8 +189,9 @@ void handleDriverConnection(enum conn_type src_type){
     struct pollfd fds[CONN_TYPE_LEN];
 
     while (!eflag) {
-        while(cmgr.poll_conn(fds) <= 0){
-            if (eflag){
+//        printf("Thread: %d\n", src_type);
+        while((status = cmgr.poll_conn(fds)) <= 0){
+            if (eflag || status < 0){
                 pthread_exit(0);
             }
         }
@@ -222,8 +202,12 @@ void handleDriverConnection(enum conn_type src_type){
         if (!(fds[src_type].revents & POLLIN)){
             continue;
         }
-        if ((bytesRead = cmgr.recv_fr_cli(src_type, (char *)&buffer, sizeof(buffer))) < 0){
-            perror("ERROR reading from socket");
+        if ((bytesRead = cmgr.recv_fr_cli(src_type, (char *)&buffer, sizeof(buffer))) <= 0){
+            if (bytesRead == 0){
+                printf("Socket closed by remote connection");
+            } else {
+                perror("ERROR reading from socket");
+            }
             cmgr.close(src_type);
 	        return;
         }
@@ -254,7 +238,7 @@ void handleDriverConnection(enum conn_type src_type){
         }
     }
 #ifdef DEBUG
-    printf("Exiting handleDriverConnection");
+    printf("Exiting handleDriverConnection\n");
 #endif
     cmgr.close(src_type);
     return;
@@ -374,13 +358,31 @@ void handleReplicaConnection(enum conn_type src_type){
     int offset, bytesRead;
     int status = 0;
     struct rmgr_sync_request buffer, req;
+    struct pollfd fds[CONN_TYPE_LEN];
 
     while(!eflag){
-	if ((bytesRead = cmgr.recv_fr_cli(src_type, (char *)&buffer, sizeof(buffer))) < 0){
-		perror("ERROR reading from socket");
-		cmgr.close(src_type);
-		return;
-	}
+//        printf("Thread: %d\n", src_type);
+        while((status = cmgr.poll_conn(fds)) <= 0){
+            if (eflag || status < 0){
+                pthread_exit(0);
+            }
+        }
+        if (fds[src_type].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+            cmgr.close(src_type);
+            return;
+        }
+        if (!(fds[src_type].revents & POLLIN)) {
+            continue;
+        }
+        if ((bytesRead = cmgr.recv_fr_cli(src_type, (char *) &buffer, sizeof(buffer))) <= 0) {
+            if (bytesRead == 0){
+                printf("Socket closed by remote connection");
+            } else {
+                perror("ERROR reading from socket");
+            }
+            cmgr.close(src_type);
+            return;
+        }
 
         // Switch endianness
         req.command = ntohs(buffer.command);
@@ -406,7 +408,7 @@ void handleReplicaConnection(enum conn_type src_type){
     }
 
 #ifdef DEBUG
-    printf("Exiting handleConnection");
+    printf("Exiting handleConnection\n");
 #endif
     cmgr.close(src_type);
     return;
@@ -476,7 +478,7 @@ void handleExit(int sig){
     if (sig & (SIGINT | SIGTERM | SIGQUIT | SIGABRT)){
         printf("Exit signal received\n");
         eflag = 1;
-        exit(0); // Figure out how to get this to do lsvd_close....?
+        //exit(0); // Figure out how to get this to do lsvd_close....?
     }
 }
 
