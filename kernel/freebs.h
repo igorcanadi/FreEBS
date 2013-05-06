@@ -7,7 +7,7 @@
 #include <linux/workqueue.h>
 
 #define fbs_printk(type, fmt, ...) \
-  printk(type fmt, ##__VA_ARGS__)
+  printk(type "%s:%d - " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
 
 #define fbs_info(fmt, ...) \
   fbs_printk(KERN_INFO, fmt, ##__VA_ARGS__) //"%s:%d - " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
@@ -23,6 +23,7 @@ struct freebs_socket {
     struct sockaddr_in servaddr;
     struct socket    *socket;
     struct workqueue_struct *work_queue; /* queue of freebs_requests to send */
+    struct task_struct *receiver;
 };
 
 //typedef unsigned int sector_t;
@@ -35,6 +36,12 @@ struct freebs_request {
     unsigned int req_num;
     struct request *req;
     struct list_head    queue;
+    atomic_t num_commits;
+};
+
+struct sender_work {
+    struct freebs_request *fbs_req;
+    struct freebs_socket *fbs_sock;
     struct work_struct work;
 };
 
@@ -81,6 +88,33 @@ static inline fbs_sector_t bytes_to_freebs(unsigned int bytes)
 extern int bsdevice_init(struct freebs_device *);
 extern void bsdevice_cleanup(struct freebs_device *);
 
+struct freebs_device;
+
+/*
+ * This represents data passed to each receiver thread
+ */
+struct receiver_data {
+    struct freebs_device *fbs_dev;
+    int replica;
+};
+
+/*
+ * Represents a replica manager
+ */
+struct replica {
+    uint64_t seq_num;
+    struct freebs_socket data;
+    struct receiver_data receiver_data;
+};
+
+/*
+ * Represents the list of replicas, the first one being the primary
+ */
+struct replica_list {
+    struct replica *replicas;
+    int num_replicas;
+};
+
 /*
  * The internal structure representation of our device
  */
@@ -93,28 +127,22 @@ struct freebs_device {
     struct request_queue *fbs_queue;
     /* This is kernel's representation of an individual disk device */
     struct gendisk *fbs_disk;
-    struct freebs_socket data;
     atomic_t            packet_seq;
     atomic_t            req_num;
     struct list_head    in_flight;    /* requests that have been sent to replica
                                          manager but have not been completed */
-    struct mutex        in_flight_l;
-    struct task_struct  *receiver;
-    struct task_struct  *sender;
+    rwlock_t            in_flight_l;
+    //struct task_struct  *receiver;
+    //struct task_struct  *sender;
+    struct replica_list replicas;
+    int quorum; /* how many replicas must claim to have committed the write
+                   for it to be a success */
 };
 
-#define __packed __attribute__((packed))
-
-struct p_header_only {
-    //u16	  magic;	/* use DRBD_MAGIC_BIG here */
-    u16	  command;
-    u32	  length;	/* Use only 24 bits of that. Ignore the highest 8 bit. */
-    u8	  payload[0];
-} __packed;
-
-union p_header {
-    struct p_header_only h;
-};
+static inline struct freebs_socket *primary(struct freebs_device *fbs_dev)
+{
+    return &fbs_dev->replicas.replicas[0].data;
+}
 
 /* returns 1 if it was successful,
  * returns 0 if there was no data socket.
@@ -124,25 +152,26 @@ union p_header {
  *	CODE();
  * freebs_put_data_sock(fbs_dev);
  */
-static inline int freebs_get_data_sock(struct freebs_device *fbs_dev)
+static inline int freebs_get_data_sock(struct freebs_socket *fbs_sock)
 {
-    mutex_lock(&fbs_dev->data.mutex);
+    mutex_lock(&fbs_sock->mutex);
     /* freebs_disconnect() could have called freebs_free_sock()
      * while we were waiting in down()... */
-    if (unlikely(fbs_dev->data.socket == NULL)) {
-        mutex_unlock(&fbs_dev->data.mutex);
+    if (unlikely(fbs_sock->socket == NULL)) {
+        mutex_unlock(&fbs_sock->mutex);
         return 0;
     }
     return 1;
 }
 
-static inline void freebs_put_data_sock(struct freebs_device *fbs_dev)
+static inline void freebs_put_data_sock(struct freebs_socket *fbs_sock)
 {
-    mutex_unlock(&fbs_dev->data.mutex);
+    mutex_unlock(&fbs_sock->mutex);
 }
 
 int freebs_send(struct freebs_device *, struct socket *,
                 void *, size_t, unsigned);
-void freebs_init_socks(struct freebs_device *);
+int freebs_init_socks(struct freebs_device *);
+int establish_connections(struct freebs_device *);
 
 #endif
