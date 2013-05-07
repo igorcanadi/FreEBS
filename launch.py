@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import argparse, socket, sh, getpass, paramiko, time, threading, sys
+import argparse, socket, getpass, paramiko, time, threading, sys
 
 class Piper(threading.Thread):
     def __init__(self, inp, out, host):
