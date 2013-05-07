@@ -315,8 +315,6 @@ int freebs_receiver(void *private)
         blk_end_request_all(req->req, status); 
         kmem_cache_free(fbs_req_cache, req);
     }
-
-    //_bsdevice_cleanup(fbs_dev);
 }
 
 void freebs_sender(struct work_struct *work) 
@@ -391,7 +389,7 @@ fail:
 static struct freebs_request *new_freebs_request(void)
 {
     struct freebs_request *fbs_req;
-    if (!(fbs_req = kmem_cache_alloc(fbs_req_cache, GFP_KERNEL)))
+    if (!(fbs_req = kmem_cache_alloc(fbs_req_cache, GFP_ATOMIC)))
         return NULL;
     atomic_set(&fbs_req->num_commits, 0);
     return fbs_req;
@@ -400,7 +398,7 @@ static struct freebs_request *new_freebs_request(void)
 static struct sender_work *new_sender_work(void)
 {
     struct sender_work *sender_work;
-    if (!(sender_work = kmem_cache_alloc(sender_work_cache, GFP_KERNEL)))
+    if (!(sender_work = kmem_cache_alloc(sender_work_cache, GFP_ATOMIC)))
         return NULL;
     INIT_WORK(&sender_work->work, freebs_sender);
     return sender_work;
