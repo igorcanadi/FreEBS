@@ -175,9 +175,13 @@ int ConnectionManager::update(enum conn_type sel, const char *host){
 	return -1;
     }
     
-    pthread_mutex_lock(lock);
     port_str = std::to_string(port);
-    status = getaddrinfo(host, port_str.c_str(), NULL, &res);
+    if ((status = getaddrinfo(host, port_str.c_str(), NULL, &res)) < 0) {
+        perror("ERROR acquiring host address");
+        return -1;
+    }
+
+    pthread_mutex_lock(lock);
     memcpy(addr, res[0].ai_addr, res[0].ai_addrlen);
     pthread_mutex_unlock(lock);
     freeaddrinfo(res);
@@ -294,6 +298,10 @@ int ConnectionManager::recv_fr_srv(enum conn_type sel, char * buf, size_t len){
             return bytes;
         }
     }
+
+#ifdef DEBUG
+    printf("recv_fr_srv: %d bytes\n", off);
+#endif
 
     return off;
 }

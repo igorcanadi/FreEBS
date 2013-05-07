@@ -27,6 +27,8 @@ int handleWriteRequest(enum conn_type src_type, struct fbs_request &request);
 int handleSyncRequest(enum conn_type src_type, uint64_t seq_num);
 int handlePropRequest(enum conn_type src_type);
 
+int sendSyncRequest();
+
 void handleExit(int sig);
 
 // Global Variables
@@ -125,7 +127,11 @@ int main(int argc, char *argv[]){
         exit(1);
     }
 
-    // Sync
+    // Already established connection in 'p'
+    if (prev != NULL && sendSyncRequest() < 0){
+        perror("ERROR sync problem!");
+        exit(1);
+    }
    
     pthread_create(&d_thread, NULL, handleConnection, &d);
     pthread_create(&p_thread, NULL, handleConnection, &p);
@@ -204,7 +210,7 @@ void handleDriverConnection(enum conn_type src_type){
         }
         if ((bytesRead = cmgr.recv_fr_cli(src_type, (char *)&buffer, sizeof(buffer))) <= 0){
             if (bytesRead == 0){
-                printf("Socket closed by remote connection");
+                printf("Socket closed by remote connection\n");
             } else {
                 perror("ERROR reading from socket");
             }
@@ -267,7 +273,7 @@ int sendResponse(struct resp_data response, bool write) {
 }
 
 int handleReadRequest(enum conn_type src_type, struct fbs_request &request){
-    int status = 0;
+    int bytesRW = 0;
     struct resp_data response;
     int min, max;
 #ifdef DEBUG
@@ -280,17 +286,21 @@ int handleReadRequest(enum conn_type src_type, struct fbs_request &request){
     max = min + request.len;                // Byteoffset
 
     response.data = new char[max - min + 1]; // Allocate space
-    if ((status = rmgr->read(request.offset, request.len / FBS_SECTORSIZE, 
-                    request.seq_num, response.data)) < 0){
-        return status;
+    try {
+        if ((bytesRW = rmgr->read(request.offset, request.len / FBS_SECTORSIZE,
+                        request.seq_num, response.data)) < 0){
+            throw bytesRW;
+        }
+        response.numBytes = max - min;
+        bytesRW = sendResponse(response, false);
+
+    } catch(int e){
+       perror("ERROR handleReadRequest");
     }
-    response.numBytes = max - min;
-    
-    status = sendResponse(response, false);
 
     delete [] response.data;
 
-    return status;
+    return bytesRW;
 }
 
 // src_type : specify which client we are recieving data from. Should be 
@@ -309,43 +319,44 @@ int handleWriteRequest(enum conn_type src_type, struct fbs_request &request){
 
     buffer = new char[request.len];
 
-try{
+    try {
 #ifdef DEBUG
-    printf("Server: Write to offset %u\n", request.offset * FBS_SECTORSIZE);
+        printf("Server: Write to offset %u\n", request.offset * FBS_SECTORSIZE);
 #endif
-    prop_request.command = htons(RMGR_PROP);
-    prop_request.seq_num = htonl(request.seq_num);
+        prop_request.command = htons(RMGR_PROP);
+        prop_request.seq_num = htonl(request.seq_num);
 
-    prop_fbs_hdr.command = htons(request.command);
-    prop_fbs_hdr.offset = htonl(request.offset);
-    prop_fbs_hdr.len = htonl(request.len);
-    prop_fbs_hdr.req_num = htonl(request.req_num);
-    prop_fbs_hdr.seq_num = htonl(request.seq_num);
+        prop_fbs_hdr.command = htons(request.command);
+        prop_fbs_hdr.offset = htonl(request.offset);
+        prop_fbs_hdr.len = htonl(request.len);
+        prop_fbs_hdr.req_num = htonl(request.req_num);
+        prop_fbs_hdr.seq_num = htonl(request.seq_num);
 
-    cmgr.send_to_srv(CONN_NEXT, (char *)&prop_request, sizeof(prop_request));
-    cmgr.send_to_srv(CONN_NEXT, (char *)&prop_fbs_hdr, sizeof(prop_fbs_hdr));
+        cmgr.send_to_srv(CONN_NEXT, (char *) &prop_request,
+                sizeof(prop_request));
+        cmgr.send_to_srv(CONN_NEXT, (char *) &prop_fbs_hdr,
+                sizeof(prop_fbs_hdr));
 
-    if ((bytesRW = cmgr.recv_fr_cli(src_type, buffer, request.len)) < 0){
-        throw bytesRW;
-    }
+        if ((bytesRW = cmgr.recv_fr_cli(src_type, buffer, request.len)) < 0) {
+            throw bytesRW;
+        }
 #ifdef DEBUG
-    printf("Server: recieved %d bytes, total: %lu\n", bytesRW, request.len);
+        printf("Server: recieved %d bytes, total: %lu\n", bytesRW, request.len);
 #endif
-    cmgr.send_to_srv(CONN_NEXT, buffer, request.len);
+        cmgr.send_to_srv(CONN_NEXT, buffer, request.len);
 
-    if ((bytesRW = rmgr->write(request.offset, request.len / FBS_SECTORSIZE, 
-                    request.seq_num, buffer) < 0)){
-        throw bytesRW;
+        if ((bytesRW = rmgr->write(request.offset,
+                request.len / FBS_SECTORSIZE, request.seq_num, buffer) < 0)) {
+            throw bytesRW;
+        }
+
+        bytesRW = sendResponse(response, true);
+    } catch (int e) {
+        perror("ERROR handleWrite");
     }
-} catch(int e){
-	perror("ERROR handlewrite");
-	delete [] buffer;
-        return e;
-}
 
     delete [] buffer;
-
-    return sendResponse(response, true);
+    return bytesRW;
 }
 
 
@@ -354,16 +365,16 @@ try{
 /*
  * Replica/controller functions
  * */
-void handleReplicaConnection(enum conn_type src_type){
+void handleReplicaConnection(enum conn_type src_type) {
     int offset, bytesRead;
     int status = 0;
     struct rmgr_sync_request buffer, req;
     struct pollfd fds[CONN_TYPE_LEN];
 
-    while(!eflag){
-//        printf("Thread: %d\n", src_type);
-        while((status = cmgr.poll_conn(fds)) <= 0){
-            if (eflag || status < 0){
+    while (!eflag) {
+        //        printf("Thread: %d\n", src_type);
+        while ((status = cmgr.poll_conn(fds)) <= 0) {
+            if (eflag || status < 0) {
                 pthread_exit(0);
             }
         }
@@ -374,9 +385,10 @@ void handleReplicaConnection(enum conn_type src_type){
         if (!(fds[src_type].revents & POLLIN)) {
             continue;
         }
-        if ((bytesRead = cmgr.recv_fr_cli(src_type, (char *) &buffer, sizeof(buffer))) <= 0) {
-            if (bytesRead == 0){
-                printf("Socket closed by remote connection");
+        if ((bytesRead = cmgr.recv_fr_cli(src_type, (char *) &buffer,
+                sizeof(buffer))) <= 0) {
+            if (bytesRead == 0) {
+                printf("Socket closed by remote connection\n");
             } else {
                 perror("ERROR reading from socket");
             }
@@ -390,62 +402,28 @@ void handleReplicaConnection(enum conn_type src_type){
 #ifdef DEBUG    
         printf("Server req: %u %lu\n", req.command, req.seq_num);
 #endif
-        switch (req.command){
-            case RMGR_SYNC:
-                status = handleSyncRequest(src_type, req.seq_num);
-                break;
-            case RMGR_PROP:
-                status = handlePropRequest(src_type);
-		break;
-            default:
-                status = -1;
-		break;
+        switch (req.command) {
+        case RMGR_SYNC:
+            status = handleSyncRequest(src_type, req.seq_num);
+            break;
+        case RMGR_PROP:
+            status = handlePropRequest(src_type);
+            break;
+        default:
+            status = -1;
+            break;
         }
 
-        if (status < 0){
+        if (status < 0) {
             perror("ERROR handling request");
         }
     }
 
 #ifdef DEBUG
-    printf("Exiting handleConnection\n");
+    printf("Exiting handleReplicaConnection\n");
 #endif
     cmgr.close(src_type);
     return;
-}
-
-// Serve sync request by sending back writes
-int handleSyncRequest(enum conn_type src_type, uint64_t seq_num){
-    uint32_t version = rmgr->get_local_version();   // Casting.. change this later
-    struct rmgr_sync_response resp;
-    int bytesWritten = 0;
-
-    char *write_buf = NULL;
-    size_t write_len;
-
-    if (version > seq_num){
-        write_buf = rmgr->get_writes_since(seq_num, &write_len);
-        resp.seq_num = htonl(seq_num);
-    } else {    // Version too low, don't send writes
-        resp.seq_num = 0;
-        resp.size = 0;
-    }
-
-    // Send header to client that requested SYNC
-    if((bytesWritten = cmgr.send_to_cli(CONN_NEXT, (char *)&resp, sizeof(resp))) < 0){
-        perror("ERROR sync send hdr fail");
-        return bytesWritten;
-    }
-    if((bytesWritten = cmgr.send_to_cli(CONN_NEXT, (char *)&write_buf, write_len)) < 0){
-        perror("Sync send fail");
-        return bytesWritten;
-    }
-
-    if (write_buf != NULL) {
-        free(write_buf); // Free that guy!
-    }
-
-    return bytesWritten;
 }
 
 int handlePropRequest(enum conn_type type){
@@ -454,24 +432,134 @@ int handlePropRequest(enum conn_type type){
     int off = 0, bytesRead = 0;
 
     // Grab FBS header
-    if ((bytesRead = cmgr.recv_fr_cli(CONN_PREV, (char *)&buffer, 
+    if ((bytesRead = cmgr.recv_fr_cli(CONN_PREV, (char *)&buffer,
             sizeof(buffer))) < 0){
-	    return bytesRead;
+        return bytesRead;
     }
-   
+
     req.command = ntohs(buffer.command);
     req.len = ntohl(buffer.len);
     req.offset = ntohl(buffer.offset);
     req.seq_num = ntohl(buffer.seq_num);
     req.req_num = ntohl(buffer.req_num);
 
-#ifdef DEBUG    
+#ifdef DEBUG
     printf("Server req: %u %lu %lu %lu %lu\n", req.command, req.len,
        req.offset, req.seq_num, req.req_num);
 #endif
 
     handleWriteRequest(type, req);
 
+}
+
+// Serve sync request by sending back writes
+int handleSyncRequest(enum conn_type src_type, uint64_t seq_num){
+    uint32_t version = static_cast<uint32_t>(rmgr->get_local_version());   // BE CAREFUL HERE....
+    struct rmgr_sync_response resp;
+    int bytesWritten = 0;
+
+    char *write_buf = NULL;
+    size_t write_len;
+    try {
+        if (version > seq_num) {
+            write_buf = rmgr->get_writes_since(seq_num, &write_len);
+            resp.seq_num = htonl(seq_num);
+            resp.size = htonl(write_len);
+
+            // Send header to client that requested SYNC
+            if ((bytesWritten = cmgr.send_to_cli(CONN_NEXT, (char *) &resp,
+                    sizeof(resp))) < 0) {
+                perror("ERROR sync send hdr fail");
+                throw bytesWritten;
+            }
+
+            // Send writes
+            if ((bytesWritten = cmgr.send_to_cli(CONN_NEXT, write_buf,
+                    write_len)) < 0) {
+                perror("Sync send fail");
+                throw bytesWritten;
+            }
+
+        } else { // Local version too low, don't send writes
+            resp.seq_num = 0;
+            resp.size = 0;
+
+            // Send header to client that requested SYNC
+            if ((bytesWritten = cmgr.send_to_cli(CONN_NEXT, (char *) &resp,
+                    sizeof(resp))) < 0) {
+                perror("ERROR sync send hdr fail");
+                throw bytesWritten;
+            }
+        }
+
+#ifdef DEBUG
+        printf("Sync seq_num: %d\n", seq_num);
+#endif
+
+    } catch (int e) {
+        bytesWritten = e;
+    }
+
+    if (write_buf != NULL) {
+        free(write_buf); // Free that guy!
+    }
+
+
+    return bytesWritten;
+}
+
+int sendSyncRequest(){
+    struct rmgr_sync_request req;
+    struct rmgr_sync_response resp;
+
+    char *buf = NULL;
+    int bytesRead = 0;
+    int status = 0;
+
+    try {
+        req.command = htons(RMGR_SYNC);
+        req.seq_num = htonl(static_cast<uint32_t>(rmgr->get_local_version()));
+
+        // Send SYNC message to PREV replica
+        if ((status = cmgr.send_to_srv(CONN_PREV, (char *) &req, sizeof(req)))
+                <= 0) {
+            throw status;
+        }
+
+        // Receive all writes from PREV replica
+
+        // Get response header
+        if ((status = cmgr.recv_fr_srv(CONN_PREV, (char *) &resp, sizeof(resp))) <= 0) {
+            throw status;
+        }
+
+        resp.seq_num = ntohl(resp.seq_num);
+        resp.size = ntohl(resp.size);
+
+#ifdef DEBUG
+        printf("Sync resp: %lu, %lu\n", resp.seq_num, resp.size);
+#endif
+
+        if (resp.seq_num > 0){
+            // Get all writes
+            buf = new char[resp.size];
+            if ((status = cmgr.recv_fr_srv(CONN_PREV, buf, resp.size)) <= 0) {
+                throw status;
+            }
+
+            if ((status = rmgr->put_writes_since(buf, resp.size)) < 0) {
+                throw status;
+            }
+        }
+    } catch(int e){
+        perror("ERROR sync");
+    }
+
+    if (buf != NULL){
+        delete [] buf;
+    }
+
+    return status;
 }
 
 void handleExit(int sig){

@@ -129,60 +129,67 @@ int ReplicaManager::write(uint64_t offset, uint64_t length, uint64_t seq_num, co
 
     // Aligned write
     if(lsvd_min == fbs_min && lsvd_max == fbs_max){
-        status = write_lsvd(local, buffer, lsvd_len, lsvd_off, seq_num);
-    } else {    // Unaligned
-        uint64_t cache_off = 0; // Cache byte offset
-        uint64_t buff_off = 0;  // Buffer byte offset
-        uint64_t copy_len = 0;       // How much to copy
+        if ((status = write_lsvd(local, buffer, lsvd_len, lsvd_off, seq_num)) < 0){
+            perror("ERROR ReplicaManager LSVD write fail");
+        }
+        return status;
+    }
 
-        cache_size = lsvd_max - lsvd_min;
-        cache = new char[cache_size];
 
+    // Unaligned
+
+    uint64_t cache_off = 0; // Cache byte offset
+    uint64_t buff_off = 0; // Buffer byte offset
+    uint64_t copy_len = 0; // How much to copy
+
+    cache_size = lsvd_max - lsvd_min;
+    cache = new char[cache_size];
+
+    try {
         // Unaligned in the low end of memory
-        if (lsvd_min != fbs_min){
-            if ((status = read_lsvd(local, &cache[0], 1, lsvd_off, version)) < 0){
-                perror("ERROR LSVD read fail");
-                return status;
+        if (lsvd_min != fbs_min) {
+            if ((status = read_lsvd(local, &cache[0], 1, lsvd_off, version))
+                    < 0) {
+                throw status;
             }
             cache_off = fbs_min - lsvd_min;
             buff_off = 0;
-            if (lsvd_len == 1){
+            if (lsvd_len == 1) {
                 copy_len = fbs_max - fbs_min;
             } else {
                 copy_len = LSVD_SECTORSIZE - cache_off;
             }
 #ifdef DEBUG
-            printf("cache_off:%llu, buff_off:%llu, copy_len:%llu, cache_size:%llu\n", cache_off, 
+            printf("cache_off:%llu, buff_off:%llu, copy_len:%llu, cache_size:%llu\n", cache_off,
                     buff_off, copy_len, cache_size);
 #endif
             memcpy(&cache[cache_off], &buffer[buff_off], copy_len);
         }
-        
-        memcpy(&cache[cache_off+copy_len], &buffer[buff_off + copy_len], 
-                fbs_max-fbs_min-copy_len-buff_off);
+
+        memcpy(&cache[cache_off + copy_len], &buffer[buff_off + copy_len],
+                fbs_max - fbs_min - copy_len - buff_off);
 
         // Unaligned at the high end of memory
-        if (lsvd_max != fbs_max && lsvd_len > 1){
-            if ((status = read_lsvd(local, &cache[cache_size-LSVD_SECTORSIZE],
-                            1, lsvd_off+lsvd_len-1, version)) < 0){
-                perror("ERROR LSVD read fail");
-                return status;
+        if (lsvd_max != fbs_max && lsvd_len > 1) {
+            if ((status = read_lsvd(local, &cache[cache_size - LSVD_SECTORSIZE],
+                    1, lsvd_off + lsvd_len - 1, version)) < 0) {
+                throw status;
             }
             cache_off = cache_size - LSVD_SECTORSIZE;
             buff_off = length * FBS_SECTORSIZE - (fbs_max % LSVD_SECTORSIZE);
             copy_len = fbs_max % LSVD_SECTORSIZE;
 #ifdef DEBUG
-            printf("cache_off:%lu, buff_off:%lu, copy_len:%lu, cache_size:%lu\n", cache_off, 
+            printf("cache_off:%llu, buff_off:%llu, copy_len:%llu, cache_size:%llu\n", cache_off,
                     buff_off, copy_len, cache_size);
 #endif
             memcpy(&cache[cache_off], &buffer[buff_off], copy_len);
         }
-        status = write_lsvd(local, cache, lsvd_len, lsvd_off, seq_num);
+        if ((status = write_lsvd(local, cache, lsvd_len, lsvd_off, seq_num)) < 0){
+            throw status;
+        }
+    } catch(int e){
+        perror("ERROR ReplicaManager LSVD write fail");
         delete [] cache;
-    }
-
-    if (status < 0){
-        perror("ERROR LSVD write fail");
     }
     
     return status;
@@ -198,61 +205,8 @@ char * ReplicaManager::get_writes_since(uint64_t version, size_t *size){
     return get_writes_lsvd(local, version, size);
 }
 
-#if 0
-// Send sync request
-void ReplicaManager::sync(){
-    struct rmgr_sync_request req;
-    struct rmgr_sync_response resp;
-
-    char *buf;
-    int bytesRead = 0;
-    int conn;
-
-//    pthread_mutex_lock(&p_lock);
-    conn = pSock;
-//    pthread_mutex_unlock(&p_lock);
-
-    req.command = htons(RMGR_SYNC);
-    req.seq_num = htonl((uint32_t)(get_version(local)));
-
-    // Send SYNC message to prev
-    if(send(conn, &req, sizeof(req), 0) < 0){
-        perror("ERROR sync send");
-        return;
-    }
-    // Receive all writes from prev
-    while(1) {
-        for(int off = 0; off < sizeof(resp); off += bytesRead){
-            if ((bytesRead = recv(conn, &resp + off, sizeof(resp) - off, 0)) < 0){
-                perror("ERROR sync recv");
-                return;
-            }
-        }
-        resp.seq_num = ntohl(resp.seq_num);
-        resp.size = ntohl(resp.size);
-
-        if (resp.seq_num == 0){
-            // version too small
-            break;
-        }
-
-        // Receive data and write to volume
-        buf = new char[resp.size];
-        for (int buf_off = 0; buf_off < resp.size; buf_off += bytesRead){
-            if((bytesRead = recv(conn, &buf + buf_off, sizeof(buf) - buf_off, 0)) < 0){
-                delete buf;
-                return;
-            }
-        }
-        if (put_writes_lsvd(local, resp.seq_num, buf, resp.size) < 0){
-            perror("ERROR lsvd write");
-            delete buf;
-            return;
-        }
-    }
-
-    delete buf;
-    printf("Sync\n");
+int ReplicaManager::put_writes_since(char * buf, size_t size){
+    return put_writes_lsvd(local, get_version(local), buf, size);
 }
 
-#endif
+
