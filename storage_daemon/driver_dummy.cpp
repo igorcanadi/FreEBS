@@ -4,14 +4,13 @@
  *  Created on: May 1, 2013
  *      Author: rjlam
  */
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <netinet/in.h>
-#include <netdb.h>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
+
+#include <unistd.h>
+#include <netdb.h>
+#include <sys/socket.h>
 
 #include "replicamgr.h"
 #include "msgs.h"
@@ -242,7 +241,6 @@ int testSync(int len, char *hostnames[]){
 
         sleep(10);  // Start up secondaries here
 
-        printf("Resume\n");
         // Establish connection to secondary
         for (unsigned i = 1; i < len; i++){
             if ((sock[i] = connect(hostnames[i])) < 0){
@@ -250,18 +248,23 @@ int testSync(int len, char *hostnames[]){
             }
         }
 
-        // Read from secondary
-        for (unsigned version = 1, off = 0; version <= MAX_VERSION; version++, off++) {
-            sendReadRequest(sock[0], version, off, read_buf[off], sizeof(read_buf[off]));
-            // Check for sameness
-            for (unsigned i = 0; i < sizeof(write_buf[off]); i++){
-                if (write_buf[off][i] != read_buf[off][i]) {
-                    printf("First mismatch @ %d: %c %c\n", i, write_buf[off][i], read_buf[off][i]);
-                    throw -1;
+        // Read from secondaries
+        for (unsigned r = 1; r < len; r++){
+            for (unsigned version = 1, off = 0; version <= MAX_VERSION; version++, off++) {
+                sendReadRequest(sock[r], version, off, read_buf[off], sizeof(read_buf[off]));
+
+                // Check for sameness
+                for (unsigned i = 0; i < sizeof(write_buf[off]); i++){
+                    if (write_buf[off][i] != read_buf[off][i]) {
+                        printf("First mismatch @ Replica %d[%d]: %c %c\n", r,
+                                i, write_buf[off][i], read_buf[off][i]);
+                        throw -1;
+                    }
+                    // Clear read_buf
+                    //read_buf[off][i] = 0;
                 }
             }
         }
-
 
     } catch(int e){
         bytesRW = e;
@@ -274,7 +277,7 @@ int testSync(int len, char *hostnames[]){
 }
 
 int main(int argc, char *argv[]){
-    char **names = new char*[argc];
+    char **names = new char*[argc-1];
     int names_len = 0;
 
     int testNum = 0;

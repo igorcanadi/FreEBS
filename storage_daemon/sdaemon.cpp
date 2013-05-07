@@ -463,7 +463,7 @@ int handleSyncRequest(enum conn_type src_type, uint64_t seq_num){
     try {
         if (version > seq_num) {
             write_buf = rmgr->get_writes_since(seq_num, &write_len);
-            resp.seq_num = htonl(seq_num);
+            resp.seq_num = htonl(version);
             resp.size = htonl(write_len);
 
             // Send header to client that requested SYNC
@@ -547,12 +547,12 @@ int sendSyncRequest(){
                 throw status;
             }
 
-            if ((status = rmgr->put_writes_since(buf, resp.size)) < 0) {
+            if ((status = rmgr->put_writes_upto(resp.seq_num, buf, resp.size)) < 0) {
                 throw status;
             }
         }
     } catch(int e){
-        perror("ERROR sync");
+        perror("ERROR sendSyncRequest");
     }
 
     if (buf != NULL){

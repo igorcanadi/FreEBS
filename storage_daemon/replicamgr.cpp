@@ -202,11 +202,13 @@ uint64_t ReplicaManager::get_local_version(){
 
 // Retrieve writes up to version
 char * ReplicaManager::get_writes_since(uint64_t version, size_t *size){
+    printf("get_writes_since: %llu\n", version);
     return get_writes_lsvd(local, version, size);
 }
 
-int ReplicaManager::put_writes_since(char * buf, size_t size){
-    return put_writes_lsvd(local, get_version(local), buf, size);
+int ReplicaManager::put_writes_upto(uint64_t version, char * buf, size_t size){
+    printf("put_writes_upto: %llu\n", version);
+    return put_writes_lsvd(local, version, buf, size);
 }
 
 

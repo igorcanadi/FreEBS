@@ -56,7 +56,7 @@ public:
     // Synchronization functions
     uint64_t get_local_version();
     char *get_writes_since(uint64_t version, size_t *size);
-    int put_writes_since(char * buf, size_t size);
+    int put_writes_upto(uint64_t version, char * buf, size_t size);
 
 private:
     ReplicaManager(ReplicaManager &);
