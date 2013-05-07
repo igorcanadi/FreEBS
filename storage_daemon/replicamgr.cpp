@@ -54,42 +54,49 @@ int ReplicaManager::read(uint64_t offset, uint64_t length, uint64_t seq_num, cha
     uint64_t version;
     int status = 0;
     
-    char *cache;   // Can change this later to be the cache/buffer
+    char *cache = NULL;   // Can change this later to be the cache/buffer
 
-    fbs_min = FBS_SECTORSIZE * offset;
-    fbs_max = fbs_min + length * FBS_SECTORSIZE;
+    try {
+        fbs_min = FBS_SECTORSIZE * offset;
+        fbs_max = fbs_min + length * FBS_SECTORSIZE;
 
-    if(fbs_min % LSVD_SECTORSIZE){ 
-        lsvd_min = fbs_min - (fbs_min % LSVD_SECTORSIZE);
-    } else {
-        lsvd_min = fbs_min;
-    }
-    if (fbs_max % LSVD_SECTORSIZE){
-        lsvd_max = fbs_max + (LSVD_SECTORSIZE - (fbs_max % LSVD_SECTORSIZE));
-    } else {
-        lsvd_max = fbs_max;
-    }
+        if(fbs_min % LSVD_SECTORSIZE){
+            lsvd_min = fbs_min - (fbs_min % LSVD_SECTORSIZE);
+        } else {
+            lsvd_min = fbs_min;
+        }
+        if (fbs_max % LSVD_SECTORSIZE){
+            lsvd_max = fbs_max + (LSVD_SECTORSIZE - (fbs_max % LSVD_SECTORSIZE));
+        } else {
+            lsvd_max = fbs_max;
+        }
 
-    // Starting values
-    lsvd_off = lsvd_min / LSVD_SECTORSIZE;
-    lsvd_len = (lsvd_max - lsvd_min) / LSVD_SECTORSIZE;
-    version = get_version(local);
+        // Starting values
+        lsvd_off = lsvd_min / LSVD_SECTORSIZE;
+        lsvd_len = (lsvd_max - lsvd_min) / LSVD_SECTORSIZE;
+        version = get_version(local);
 
 #ifdef DEBUG
-    printf("READ: fbs_min:%llu fbs_max:%llu lsvd_min:%llu lsvd_max:%llu\n", 
-            fbs_min, fbs_max, lsvd_min, lsvd_max);
+        printf("READ: fbs_min:%llu fbs_max:%llu lsvd_min:%llu lsvd_max:%llu\n",
+                fbs_min, fbs_max, lsvd_min, lsvd_max);
 #endif
-    
-    // TODO: make this part of some kind of buffer pool so we don't alloc all the time
-    cache = new char[lsvd_max-lsvd_min];
 
-    if ((status = read_lsvd(local, cache, lsvd_len, lsvd_off, version)) < 0){
-        perror("ERROR LSVD read");
+        // TODO: make this part of some kind of buffer pool so we don't alloc all the time
+        cache = new char[lsvd_max-lsvd_min];
+    
+        if ((status = read_lsvd(local, cache, lsvd_len, lsvd_off, version)) < 0){
+            throw status;
+        }
+
+        memcpy(buffer, &cache[fbs_min-lsvd_min], fbs_max-fbs_min);
+    } catch(int e){
+        status = e;
+        perror("ERROR ReplicaManager LSVD read fail");
     }
-
-    memcpy(buffer, &cache[fbs_min-lsvd_min], fbs_max-fbs_min);
     
-    delete cache;
+    if (cache != NULL){
+        delete cache;
+    }
 
     return status;
 }
@@ -101,7 +108,7 @@ int ReplicaManager::write(uint64_t offset, uint64_t length, uint64_t seq_num, co
     uint64_t version;
     int status = 0;
  
-    char *cache;
+    char *cache = NULL;
     uint64_t cache_size;
 
     fbs_min = FBS_SECTORSIZE * offset;
@@ -188,10 +195,14 @@ int ReplicaManager::write(uint64_t offset, uint64_t length, uint64_t seq_num, co
             throw status;
         }
     } catch(int e){
+        status = e;
         perror("ERROR ReplicaManager LSVD write fail");
-        delete [] cache;
     }
     
+    if (cache != NULL){
+        delete [] cache;
+    }
+
     return status;
 }
 

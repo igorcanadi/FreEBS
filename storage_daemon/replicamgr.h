@@ -45,9 +45,6 @@ public:
     ReplicaManager();
     ~ReplicaManager();
 
-    int conn_prev();
-    int conn_next();
-
     int create(const char *pathname, uint64_t size);
     int open(const char *pathname);
     int read(uint64_t offset, uint64_t length, uint64_t seq_num, char *buffer);

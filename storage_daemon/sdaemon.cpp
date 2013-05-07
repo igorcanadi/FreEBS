@@ -1,20 +1,20 @@
 /* 
  * Replica manager userspace process
  * */
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+
 #include <signal.h>
 #include <pthread.h>
+#include <sys/types.h>
 
 #include "replicamgr.h"
 #include "connmgr.h"
 
+#define DEFAULT_SIZE (1*GB)
+#define MB (1048576)
+#define GB (1073741824)
 
 // Prototypes
 void *handleConnection(void *arg);
@@ -34,7 +34,7 @@ void handleExit(int sig);
 // Global Variables
 volatile sig_atomic_t eflag = 0;
 ReplicaManager *rmgr;
-ConnectionManager cmgr;
+ConnectionManager *cmgr;
 
 int main(int argc, char *argv[]){
     int status = 0;
@@ -42,8 +42,9 @@ int main(int argc, char *argv[]){
     pthread_t conn_thread, d_thread, p_thread, n_thread;
     enum conn_type d = CONN_DRIVER, p = CONN_PREV, n = CONN_NEXT;
 
-    bool create;
+    bool create = false;
     char *path = NULL, *next = NULL, *prev = NULL;
+    unsigned long long int size = -1;
 
     int sig;
     act.sa_handler = handleExit;
@@ -63,12 +64,19 @@ int main(int argc, char *argv[]){
         printf("Usage: command [flags]\n");
         printf("-c PATH\tcreate lsvd_disk with pathname PATH\n");
         printf("-o PATH\topen existing lsvd_disk with pathname PATH\n");
-        printf("-p NAME\tconnect replica to upstream host with NAME");
-        printf("-n NAME\tconnect replica to downstream host with NAME");
+        printf("-p NAME\tconnect replica to upstream host with NAME\n");
+        printf("-n NAME\tconnect replica to downstream host with NAME\n");
+        printf("-s SIZE\twhen -c used, initialize lsvd_disk with size SIZE Megabytes\n");
         exit(1);
     }    
     
+    rmgr = new ReplicaManager();
+    cmgr = new ConnectionManager();
+
     for (int i = 1; i < argc; i++){
+        if (argv[i][0] != '-'){
+            printf("Invalid flag\n");
+        }
         switch(argv[i][1]){
             case 'c':
                 if (i+1 < argc && path == NULL){
@@ -90,8 +98,8 @@ int main(int argc, char *argv[]){
                 if (i+1 < argc && prev == NULL){
                     printf("Previous name : %s\n", argv[i+1]);
                     prev = argv[i+1];
-                    cmgr.update(CONN_PREV, prev);
-                    cmgr.connect(CONN_PREV);
+                    cmgr->update(CONN_PREV, prev);
+                    cmgr->connect(CONN_PREV);
                     i++;
                 }
                 break;
@@ -99,7 +107,19 @@ int main(int argc, char *argv[]){
                 if (i+1 < argc && next == NULL){
                     printf("Next name : %s\n");
                     next = argv[i+1];
-                    cmgr.update(CONN_NEXT, next);
+                    cmgr->update(CONN_NEXT, next);
+                    i++;
+                }
+                break;
+            case 's':
+                if (i+1 < argc && size == -1){
+                    std::string size_str(argv[i+1]);
+                    try {
+                        size = stoull(size_str) * MB;
+                    } catch(std::exception &e){
+                        printf("Invalid size, using default\n");
+                        size = DEFAULT_SIZE;
+                    }
                     i++;
                 }
                 break;
@@ -109,11 +129,14 @@ int main(int argc, char *argv[]){
         }
     }
 
-    rmgr = new ReplicaManager();
+    if (size == -1){
+        size = DEFAULT_SIZE;
+    }
 
     if (path != NULL){
         if (create){
-            status = rmgr->create(path, 1048576*FBS_SECTORSIZE/LSVD_SECTORSIZE);
+            printf("Creating volume of size %lld Bytes\n", size);
+            status = rmgr->create(path, size/LSVD_SECTORSIZE);
         } else {
             status = rmgr->open(path);
         }
@@ -141,9 +164,10 @@ int main(int argc, char *argv[]){
     pthread_join(p_thread, NULL);
     pthread_join(n_thread, NULL);
 
-    printf("Deleting rmgr\n");
+    printf("Deleting rmgr, cmgr\n");
 
     delete rmgr;    // Wait for all threads to finish then delete rmgr
+    delete cmgr;
 
     printf("Exiting main\n");
     return 0;
@@ -155,14 +179,14 @@ void *handleConnection(void *arg){
 
     while(!eflag){
         // Accept connection
-        while(cmgr.poll_srv(fds) <= 0){ 
+        while(cmgr->poll_srv(fds) <= 0){
 	        if (eflag) {
                 pthread_exit(0); 
 	        }
 	    }
         if (fds[sel].revents & POLLIN){
             printf("Accepted connection from %d, fd=%d\n", sel, fds[sel].fd);
-            cmgr.accept(sel);
+            cmgr->accept(sel);
         } else {
             continue;
         }
@@ -171,7 +195,7 @@ void *handleConnection(void *arg){
             handleDriverConnection(sel);
             break;
         case CONN_NEXT:
-            while(cmgr.connect(sel) < 0);
+            while(cmgr->connect(sel) < 0);
         case CONN_PREV:
             printf("Established connection to %d\n", sel);
             handleReplicaConnection(sel);
@@ -196,25 +220,25 @@ void handleDriverConnection(enum conn_type src_type){
 
     while (!eflag) {
 //        printf("Thread: %d\n", src_type);
-        while((status = cmgr.poll_conn(fds)) <= 0){
+        while((status = cmgr->poll_conn(fds)) <= 0){
             if (eflag || status < 0){
                 pthread_exit(0);
             }
         }
         if (fds[src_type].revents & (POLLHUP | POLLERR | POLLNVAL)){
-            cmgr.close(src_type);
+            cmgr->close(src_type);
             return;
         }
         if (!(fds[src_type].revents & POLLIN)){
             continue;
         }
-        if ((bytesRead = cmgr.recv_fr_cli(src_type, (char *)&buffer, sizeof(buffer))) <= 0){
+        if ((bytesRead = cmgr->recv_fr_cli(src_type, (char *)&buffer, sizeof(buffer))) <= 0){
             if (bytesRead == 0){
                 printf("Socket closed by remote connection\n");
             } else {
                 perror("ERROR reading from socket");
             }
-            cmgr.close(src_type);
+            cmgr->close(src_type);
 	        return;
         }
         // Switch endianness
@@ -246,7 +270,7 @@ void handleDriverConnection(enum conn_type src_type){
 #ifdef DEBUG
     printf("Exiting handleDriverConnection\n");
 #endif
-    cmgr.close(src_type);
+    cmgr->close(src_type);
     return;
 }
 
@@ -259,11 +283,11 @@ int sendResponse(struct resp_data response, bool write) {
     printf("SendResponse: %u %u\n", ntohs(response.header.status), ntohl(response.header.req_num));
 #endif
 
-    if (( bytesWritten = cmgr.send_to_cli(CONN_DRIVER, (char *)&response.header, sizeof(response.header)) < 0)){
+    if (( bytesWritten = cmgr->send_to_cli(CONN_DRIVER, (char *)&response.header, sizeof(response.header)) < 0)){
         return bytesWritten;
     }
     if(!write){
-        bytesWritten = cmgr.send_to_cli(CONN_DRIVER, response.data, response.numBytes);
+        bytesWritten = cmgr->send_to_cli(CONN_DRIVER, response.data, response.numBytes);
     }
 
 #ifdef DEBUG
@@ -332,18 +356,18 @@ int handleWriteRequest(enum conn_type src_type, struct fbs_request &request){
         prop_fbs_hdr.req_num = htonl(request.req_num);
         prop_fbs_hdr.seq_num = htonl(request.seq_num);
 
-        cmgr.send_to_srv(CONN_NEXT, (char *) &prop_request,
+        cmgr->send_to_srv(CONN_NEXT, (char *) &prop_request,
                 sizeof(prop_request));
-        cmgr.send_to_srv(CONN_NEXT, (char *) &prop_fbs_hdr,
+        cmgr->send_to_srv(CONN_NEXT, (char *) &prop_fbs_hdr,
                 sizeof(prop_fbs_hdr));
 
-        if ((bytesRW = cmgr.recv_fr_cli(src_type, buffer, request.len)) < 0) {
+        if ((bytesRW = cmgr->recv_fr_cli(src_type, buffer, request.len)) < 0) {
             throw bytesRW;
         }
 #ifdef DEBUG
         printf("Server: recieved %d bytes, total: %lu\n", bytesRW, request.len);
 #endif
-        cmgr.send_to_srv(CONN_NEXT, buffer, request.len);
+        cmgr->send_to_srv(CONN_NEXT, buffer, request.len);
 
         if ((bytesRW = rmgr->write(request.offset,
                 request.len / FBS_SECTORSIZE, request.seq_num, buffer) < 0)) {
@@ -373,26 +397,26 @@ void handleReplicaConnection(enum conn_type src_type) {
 
     while (!eflag) {
         //        printf("Thread: %d\n", src_type);
-        while ((status = cmgr.poll_conn(fds)) <= 0) {
+        while ((status = cmgr->poll_conn(fds)) <= 0) {
             if (eflag || status < 0) {
                 pthread_exit(0);
             }
         }
         if (fds[src_type].revents & (POLLHUP | POLLERR | POLLNVAL)) {
-            cmgr.close(src_type);
+            cmgr->close(src_type);
             return;
         }
         if (!(fds[src_type].revents & POLLIN)) {
             continue;
         }
-        if ((bytesRead = cmgr.recv_fr_cli(src_type, (char *) &buffer,
+        if ((bytesRead = cmgr->recv_fr_cli(src_type, (char *) &buffer,
                 sizeof(buffer))) <= 0) {
             if (bytesRead == 0) {
                 printf("Socket closed by remote connection\n");
             } else {
                 perror("ERROR reading from socket");
             }
-            cmgr.close(src_type);
+            cmgr->close(src_type);
             return;
         }
 
@@ -422,7 +446,7 @@ void handleReplicaConnection(enum conn_type src_type) {
 #ifdef DEBUG
     printf("Exiting handleReplicaConnection\n");
 #endif
-    cmgr.close(src_type);
+    cmgr->close(src_type);
     return;
 }
 
@@ -432,7 +456,7 @@ int handlePropRequest(enum conn_type type){
     int off = 0, bytesRead = 0;
 
     // Grab FBS header
-    if ((bytesRead = cmgr.recv_fr_cli(CONN_PREV, (char *)&buffer,
+    if ((bytesRead = cmgr->recv_fr_cli(CONN_PREV, (char *)&buffer,
             sizeof(buffer))) < 0){
         return bytesRead;
     }
@@ -467,14 +491,14 @@ int handleSyncRequest(enum conn_type src_type, uint64_t seq_num){
             resp.size = htonl(write_len);
 
             // Send header to client that requested SYNC
-            if ((bytesWritten = cmgr.send_to_cli(CONN_NEXT, (char *) &resp,
+            if ((bytesWritten = cmgr->send_to_cli(CONN_NEXT, (char *) &resp,
                     sizeof(resp))) < 0) {
                 perror("ERROR sync send hdr fail");
                 throw bytesWritten;
             }
 
             // Send writes
-            if ((bytesWritten = cmgr.send_to_cli(CONN_NEXT, write_buf,
+            if ((bytesWritten = cmgr->send_to_cli(CONN_NEXT, write_buf,
                     write_len)) < 0) {
                 perror("Sync send fail");
                 throw bytesWritten;
@@ -485,7 +509,7 @@ int handleSyncRequest(enum conn_type src_type, uint64_t seq_num){
             resp.size = 0;
 
             // Send header to client that requested SYNC
-            if ((bytesWritten = cmgr.send_to_cli(CONN_NEXT, (char *) &resp,
+            if ((bytesWritten = cmgr->send_to_cli(CONN_NEXT, (char *) &resp,
                     sizeof(resp))) < 0) {
                 perror("ERROR sync send hdr fail");
                 throw bytesWritten;
@@ -521,7 +545,7 @@ int sendSyncRequest(){
         req.seq_num = htonl(static_cast<uint32_t>(rmgr->get_local_version()));
 
         // Send SYNC message to PREV replica
-        if ((status = cmgr.send_to_srv(CONN_PREV, (char *) &req, sizeof(req)))
+        if ((status = cmgr->send_to_srv(CONN_PREV, (char *) &req, sizeof(req)))
                 <= 0) {
             throw status;
         }
@@ -529,7 +553,7 @@ int sendSyncRequest(){
         // Receive all writes from PREV replica
 
         // Get response header
-        if ((status = cmgr.recv_fr_srv(CONN_PREV, (char *) &resp, sizeof(resp))) <= 0) {
+        if ((status = cmgr->recv_fr_srv(CONN_PREV, (char *) &resp, sizeof(resp))) <= 0) {
             throw status;
         }
 
@@ -543,7 +567,7 @@ int sendSyncRequest(){
         if (resp.seq_num > 0){
             // Get all writes
             buf = new char[resp.size];
-            if ((status = cmgr.recv_fr_srv(CONN_PREV, buf, resp.size)) <= 0) {
+            if ((status = cmgr->recv_fr_srv(CONN_PREV, buf, resp.size)) <= 0) {
                 throw status;
             }
 
