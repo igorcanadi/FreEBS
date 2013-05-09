@@ -1,0 +1,10 @@
+iometer-file-access-server: the fio file used to run the benchmark
+
+-== iometer benchmark ==-
+iometer.remote.cp: This was run with two replicas on mumble-01 and mumble-02 and a client running under
+	VirtualBox on mumble-39. Replica files were located in /tmp. Filesystem: ext2
+iometer.ext4.cp: Same as iometer.remote.cp except with ext4
+iometer.local.cp: This was run on mumble-01 under native Linux in /tmp. Filesystem: ext4
+
+Notes: it seems that we are actually significantly better than local. Possible reasons:
+	- we don't fsync every write, so maybe we fsync much less
