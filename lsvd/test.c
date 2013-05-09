@@ -156,9 +156,26 @@ void benchmarks() {
     free(data);
 }
 
+void test_checkpointing() {
+    int i;
+    struct lsvd_disk *lsvd;
+    char *data = (char *)malloc(SECTOR_SIZE * 100);
+
+    generate_random(data, SECTOR_SIZE * 100);
+    lsvd = create_lsvd("/scratch/test_disk", SIZE / SECTOR_SIZE);
+
+    for (i = 0; i < 50000; ++i) {
+        assert(write_lsvd(lsvd, data, 100, 0, i+1) == 0);
+    }
+
+    close_lsvd(lsvd);
+    free(data);
+}
+
 int main() {
     //basic_test();
     benchmarks();
+    //test_checkpointing();
 
     return 0;
 }

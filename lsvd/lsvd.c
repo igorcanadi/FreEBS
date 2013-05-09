@@ -32,7 +32,7 @@
 #define CHECKPOINT_EXIT          (1 << 3)
 #define CHECKPOINT_FAILED        (1 << 4)
 
-//#define DO_CHECKPOINTING
+#define DO_CHECKPOINTING
 
 // DISK LAYOUT
 // <SUPERBLOCK> <CHECKPOINT 1> <CHECKPOINT 2>
@@ -206,6 +206,7 @@ void *checkpoint_thread(void *lsvd_v) {
         clock_gettime(CLOCK_REALTIME, &ts);
         ts.tv_sec += CHECKPOINT_FREQUENCY;
 
+        ret = 0;
         // if timeout isn't done (ret will not be zero when timeout is done)
         // if checkpoint is not forced
         while (ret == 0 && !(lsvd->checkpoint_state & CHECKPOINT_FORCED)) {
