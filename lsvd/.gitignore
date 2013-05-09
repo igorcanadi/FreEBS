@@ -1,4 +1,6 @@
 *.o
 *.swp
 lsvd_test
+open
+write
 results/*
