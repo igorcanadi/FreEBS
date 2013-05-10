@@ -17,14 +17,14 @@ class Piper(threading.Thread):
 class Host(object):
     hosts = list()
 
-    def connect(self, username, password):
+    def connect(self, username, password, port):
         # first do the SSHClient
         self.client = paramiko.SSHClient()
         self.client.load_system_host_keys()
         self.client.set_missing_host_key_policy(paramiko.WarningPolicy())
-        self.client.connect(self.hostname, 22, username, password)
+        self.client.connect(self.hostname, port, username, password)
         # next do the SFTPClient
-        self.transport = paramiko.Transport((self.hostname, 22))
+        self.transport = paramiko.Transport((self.hostname, port))
         self.transport.connect(username=username, password=password)
         self.sftp = paramiko.SFTPClient.from_transport(self.transport)
         Host.hosts.append(self)
@@ -39,12 +39,14 @@ class Host(object):
         rv = self.sftp.put(local, remote)
         self.sftp.chmod(remote, 0700)
 
-    def __init__(self, hostname, username, password):
+    def __init__(self, hostname, username, password, port = 22):
         self.hostname = hostname
         self.ip = socket.gethostbyname(hostname)
-        self.connect(username, password)
+        self.connect(username, password, port)
 
     def __del__(self):
+        self.do('killall sdaemon')
+        self.do('killall -KILL sdaemon')
         self.client.close()
         self.transport.close()
 
@@ -71,14 +73,18 @@ def main():
     parser.add_argument('--rmgr', nargs=1, type=str,
             default='~/bin/sdaemon',
             help='remote filename of storage daemon')
+    parser.add_argument('--port', nargs=1, type=int,
+            default=5000,
+            help='port of client ssh server (default 5000)')
     args = parser.parse_args()
 
     username = args.username
     password = get_pass(username)
     paramiko.util.log_to_file('paramiko.log')
 
+    port = args.port[0]
     replicas = map(lambda replica: Host(replica, username, password), args.replicas)
-    client = Host(args.client[0], 'igor', '!')
+    client = Host(args.client[0], 'igor', '!', port)
 
     print 'installing sdaemon...'
     for i in range(len(replicas)):
@@ -94,13 +100,14 @@ def main():
             replica.do(args.rmgr + ' -c /tmp/vdisk -p ' + replicas[i - 1].hostname)
 
     client.copy(args.module, '/tmp/freebs.ko')
-    client.do('sudo insmod /tmp/freebs.ko replicas=' + ','.join([i.ip for i in replicas]))
+    client.do('sudo insmod /tmp/freebs.ko replica_ips=' + ','.join([i.ip for i in replicas]))
 
     try:
         while True:
             time.sleep(10)
     except KeyboardInterrupt, e:
-        pass
+        for replica in replicas:
+            del replica
 
 if __name__ == '__main__':
     main()
