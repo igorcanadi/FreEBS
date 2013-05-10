@@ -5,8 +5,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include "lsvd.h"
-#define SIZE 2*1024*1024*1024LL // 2GB
-#define MAX_SECTORS_TEST 1024*16
+#define SIZE 100*1024*1024*1024LL // 100GB
 
 inline uint64_t rdtsc_start(void) {
     unsigned cycles_high, cycles_low;

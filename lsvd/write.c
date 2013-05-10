@@ -6,7 +6,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include "lsvd.h"
-#define SIZE 2*1024*1024*1024LL // 2GB
+#define SIZE 100*1024*1024*1024LL // 100GB
 
 volatile sig_atomic_t eflag = 0;
 
@@ -25,7 +25,7 @@ int main() {
     uint64_t i;
     struct lsvd_disk *lsvd;
     struct sigaction act;
-    char *data = (char *)malloc(SECTOR_SIZE * 100);
+    char *data = (char *)malloc(SECTOR_SIZE * 10);
 
     act.sa_handler = handleExit;
     sigemptyset(&act.sa_mask);
@@ -39,7 +39,7 @@ int main() {
     sigaction(SIGQUIT, &act, NULL);
     sigaction(SIGABRT, &act, NULL);
 
-    generate_random(data, SECTOR_SIZE * 100);
+    generate_random(data, SECTOR_SIZE * 10);
     lsvd = create_lsvd("/scratch/test_disk", SIZE / SECTOR_SIZE);
 
     for (i = 0; ; ++i) {
@@ -47,7 +47,7 @@ int main() {
             printf("%llu\n", get_version(lsvd));
             return 0;
         }
-        assert(write_lsvd(lsvd, data, 100, 0, i+1) == 0);
+        assert(write_lsvd(lsvd, data, 10, rand() % (SIZE / SECTOR_SIZE - 15), i+1) == 0);
     }
 
     close_lsvd(lsvd);
