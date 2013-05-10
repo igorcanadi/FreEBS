@@ -128,36 +128,21 @@ static int fbs_recv(struct freebs_socket *fbs_sock, void *buf, size_t size)
 	return rv;
 }
 
-void enqueue_request(struct list_head *new, struct list_head *queue, rwlock_t *lock)
+void enqueue_request(struct list_head *new, struct list_head *queue, struct mutex *lock)
 {
     //unsigned long flags;
 
-    write_lock(lock);//, flags);
-    fbs_debug("write: got it\n");
+    mutex_lock(lock);//, flags);
+    //fbs_debug("write: got it\n");
     list_add_tail(new, queue);
-    fbs_debug("write: released it\n");
-    write_unlock(lock);//, flags);
+    //fbs_debug("write: released it\n");
+    mutex_unlock(lock);//, flags);
 }
 
-/*
- * Returns true if the request is deleted by this call, false if it was already deleted
- */
-bool del_request(struct freebs_request *req, rwlock_t *lock) 
+void del_request(struct freebs_request *req)
 {
-    //if (list_empty(&req->queue))
-        //return false;
-    bool ret = false;
-    //unsigned long flags;
-
-    write_lock(lock);//, flags);
-    fbs_debug("%d: write: got it\n", req->req_num);
-    if (!list_empty(&req->queue)) {
-        ret = true;
-        list_del_init(&req->queue);
-    }
-    fbs_debug("%d: write: released it\n", req->req_num);
-    write_unlock(lock);//, flags);
-    return ret;
+    list_del(&req->queue);
+    kmem_cache_free(fbs_req_cache, req);
 }
 
 /**
@@ -165,13 +150,13 @@ bool del_request(struct freebs_request *req, rwlock_t *lock)
  * Gets the fbs_request from the queue with the seq_num provided. Removes it from
  * the queue and returns it.
  */
-struct freebs_request *get_request(struct list_head *queue, rwlock_t *lock, int req_num) {
+struct freebs_request *get_request(struct list_head *queue, int req_num) {
     struct list_head *pos;
     struct freebs_request *req = NULL;
     bool found = false;
 
-    read_lock(lock);//, flags);
-    fbs_debug("%d: read: got it\n", req_num);
+    //read_lock(lock);//, flags);
+    //fbs_debug("%d: read: got it\n", req_num);
     list_for_each(pos, queue) {
         if (pos == LIST_POISON1 || pos == LIST_POISON2)
             fbs_debug("poison!\n");
@@ -183,8 +168,8 @@ struct freebs_request *get_request(struct list_head *queue, rwlock_t *lock, int 
             break;
         }
     }
-    fbs_debug("%d: read: released it\n", req_num);
-    read_unlock(lock);//, flags);
+    //fbs_debug("%d: read: released it\n", req_num);
+    //read_unlock(lock);//, flags);
 
     if (found)
         return req;
@@ -236,11 +221,11 @@ int try_connect_again(struct freebs_device *fbs_dev)
 
 void fail_request(struct freebs_request *req)
 {
-    struct freebs_device *fbs_dev = req->fbs_dev;
+    //struct freebs_device *fbs_dev = req->fbs_dev;
 
-    fbs_debug("failing request %d, seq_num %d\n", req->req_num, req->seq_num);
+    fbs_err("failing request %d, seq_num %d\n", req->req_num, req->seq_num);
     blk_end_request_all(req->req, -1);
-    del_request(req, &fbs_dev->in_flight_l);
+    del_request(req);
     kmem_cache_free(fbs_req_cache, req);
 }
 
@@ -274,8 +259,9 @@ int freebs_receiver(void *private)
     struct replica *replica = &fbs_dev->replicas.replicas[replica_num];
     struct freebs_socket *fbs_sock = &replica->data;
     struct fbs_response res;
-    struct freebs_request *req;
-    int rv, bytesRead, status = -1;
+    struct freebs_request *fbs_req;
+    struct request *req;
+    int rv, bytesRead, status;
     uint32_t req_num;
     
     for (;;) {
@@ -288,32 +274,36 @@ int freebs_receiver(void *private)
             bytesRead += rv;
         } while (bytesRead != sizeof(struct fbs_response));
         req_num = be32_to_cpu(res.req_num);
-        fbs_debug("completing req %d\n", req_num);
-        req = get_request(&fbs_dev->in_flight, &fbs_dev->in_flight_l, req_num);
-        if (!req) {
-            pr_err("freebs: unexpected request completion! skipping...\n");
-            continue;
+        fbs_debug("completing fbs_req %d\n", req_num);
+        mutex_lock(&fbs_dev->in_flight_l);
+        fbs_req = get_request(&fbs_dev->in_flight, req_num);
+        if (!fbs_req) {
+            //pr_err("freebs: unexpected request completion! skipping...\n");
+            goto unlock;
         }
+        req = fbs_req->req;
         if (res.status == 0) {
-            if (rq_data_dir(req->req) == READ) {
+            if (rq_data_dir(req) == READ) {
                 /* read request returning */
-                if (unlikely(complete_read(fbs_sock, req->req) < 0))
+                if (unlikely(complete_read(fbs_sock, req) < 0))
                     status = -1;
                 else
                     status = 0;
-                del_request(req, &fbs_dev->in_flight_l);
             } else {
-                if (atomic_inc_return(&req->num_commits) >= fbs_dev->quorum) {
-                    if (!del_request(req, &fbs_dev->in_flight_l))
-                        continue;
-                    status = 0;
-                } else {
-                    continue;
+                if (atomic_inc_return(&fbs_req->num_commits) < fbs_dev->quorum) {
+                    /* quorum not yet reached */
+                    goto unlock;
                 }
+                status = 0;
             }
-        } 
-        blk_end_request_all(req->req, status); 
-        kmem_cache_free(fbs_req_cache, req);
+        } else {
+            fbs_err("freebs does not currently support failure!\n");
+            goto unlock;
+        }
+        del_request(fbs_req);
+        blk_end_request_all(req, status); 
+unlock:
+        mutex_unlock(&fbs_dev->in_flight_l);
     }
 }
 
@@ -348,7 +338,7 @@ void freebs_sender(struct work_struct *work)
     hdr.req_num = cpu_to_be32(fbs_req->req_num);
 
     fbs_debug("sending %d\n", fbs_req->req_num);
-    printk(KERN_DEBUG "freebs: Sector Offset: %lld; Length: %u bytes\n",
+    fbs_debug("freebs: Sector Offset: %lld; Length: %u bytes\n",
            (long long int) fbs_req->sector, fbs_req->size);
 
     if(!freebs_get_data_sock(fbs_sock)) 
@@ -383,7 +373,9 @@ void freebs_sender(struct work_struct *work)
 fail:
     printk(KERN_ERR "freebs: send failed\n");
     freebs_put_data_sock(fbs_sock);
+    mutex_lock(&fbs_dev->in_flight_l);
     fail_request(fbs_req);
+    mutex_unlock(&fbs_dev->in_flight_l);
 }
 
 static struct freebs_request *new_freebs_request(void)
@@ -528,7 +520,7 @@ int bsdevice_init(struct freebs_device *fbs_dev)
     fbs_debug("connected\n");
 
     INIT_LIST_HEAD(&fbs_dev->in_flight);
-    rwlock_init(&fbs_dev->in_flight_l);
+    mutex_init(&fbs_dev->in_flight_l);
 
     //fbs_dev->receiver = kthread_run(freebs_receiver, fbs_dev, "fbs");
 

@@ -16,7 +16,7 @@
   fbs_printk(KERN_ERR, fmt, ##__VA_ARGS__)
 
 #define fbs_debug(fmt, ...) \
-  fbs_printk(KERN_DEBUG, fmt, ##__VA_ARGS__)
+  //fbs_printk(KERN_DEBUG, fmt, ##__VA_ARGS__)
 
 struct freebs_socket {
     struct mutex mutex;
@@ -131,7 +131,7 @@ struct freebs_device {
     atomic_t            req_num;
     struct list_head    in_flight;    /* requests that have been sent to replica
                                          manager but have not been completed */
-    rwlock_t            in_flight_l;
+    struct mutex        in_flight_l;
     //struct task_struct  *receiver;
     //struct task_struct  *sender;
     struct replica_list replicas;
