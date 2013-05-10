@@ -1,0 +1,42 @@
+iometer: (g=0): rw=randrw, bs=512-64K/512-64K, ioengine=libaio, iodepth=64
+2.0.8
+Starting 1 process
+
+iometer: (groupid=0, jobs=1): err= 0: pid=2508
+  Description  : [Emulation of Intel IOmeter File Server Access Pattern]
+  read : io=327528KB, bw=5780.5KB/s, iops=1912 , runt= 56661msec
+    slat (usec): min=0 , max=23167 , avg=32.32, stdev=124.88
+    clat (msec): min=2 , max=809 , avg=26.99, stdev=29.36
+     lat (msec): min=2 , max=809 , avg=27.03, stdev=29.36
+    clat percentiles (msec):
+     |  1.00th=[    9],  5.00th=[   11], 10.00th=[   12], 20.00th=[   14],
+     | 30.00th=[   16], 40.00th=[   18], 50.00th=[   20], 60.00th=[   23],
+     | 70.00th=[   28], 80.00th=[   36], 90.00th=[   52], 95.00th=[   68],
+     | 99.00th=[   98], 99.50th=[  112], 99.90th=[  494], 99.95th=[  537],
+     | 99.99th=[  807]
+    bw (KB/s)  : min=    2, max= 7041, per=100.00%, avg=5856.70, stdev=1374.65
+  write: io=82073KB, bw=1448.5KB/s, iops=472 , runt= 56661msec
+    slat (usec): min=0 , max=41078 , avg=42.00, stdev=362.99
+    clat (msec): min=5 , max=1563 , avg=25.88, stdev=57.75
+     lat (msec): min=5 , max=1563 , avg=25.93, stdev=57.75
+    clat percentiles (msec):
+     |  1.00th=[   10],  5.00th=[   12], 10.00th=[   13], 20.00th=[   15],
+     | 30.00th=[   16], 40.00th=[   18], 50.00th=[   19], 60.00th=[   21],
+     | 70.00th=[   23], 80.00th=[   26], 90.00th=[   32], 95.00th=[   44],
+     | 99.00th=[  139], 99.50th=[  529], 99.90th=[  742], 99.95th=[  766],
+     | 99.99th=[ 1565]
+    bw (KB/s)  : min=    1, max= 2801, per=100.00%, avg=1467.93, stdev=403.79
+    lat (msec) : 4=0.03%, 10=3.73%, 20=50.03%, 50=36.85%, 100=8.41%
+    lat (msec) : 250=0.73%, 500=0.05%, 750=0.13%, 1000=0.05%, 2000=0.01%
+  cpu          : usr=0.32%, sys=16.17%, ctx=80795, majf=0, minf=24
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, >=64=100.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, >=64=0.0%
+     issued    : total=r=108351/w=26800/d=0, short=r=0/w=0/d=0
+
+Run status group 0 (all jobs):
+   READ: io=327527KB, aggrb=5780KB/s, minb=5780KB/s, maxb=5780KB/s, mint=56661msec, maxt=56661msec
+  WRITE: io=82072KB, aggrb=1448KB/s, minb=1448KB/s, maxb=1448KB/s, mint=56661msec, maxt=56661msec
+
+Disk stats (read/write):
+  freebs: ios=107820/26666, merge=0/11, ticks=2879220/680784, in_queue=3560720, util=99.94%
