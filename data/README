@@ -14,5 +14,10 @@ iometer.nodio.local: Same as iometer.nodio.mumble but under native linux (still 
 seqwrite.freebs: seqwrite with three replicas
 seqwrite.local: seqwrite on native Linux, local disk
 
+-== write.ini benchmark ==-
+Replica file: 285M before and after cleanup
+write.freebs.dat: 3 replicas in mumble lab
+write.local.dat:
+
 Notes: it seems that we are actually significantly better than local. Possible reasons:
 	- we don't fsync every write, so maybe we fsync much less
