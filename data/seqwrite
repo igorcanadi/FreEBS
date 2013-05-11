@@ -1,0 +1,11 @@
+# This job file tries to mimic the Intel IOMeter File Server Access Pattern
+[global]
+description=Sequential write
+
+[iometer]
+rw=write
+direct=0
+size=400M
+ioengine=libaio
+iodepth=64
+fsync_on_close=1

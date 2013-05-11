@@ -8,6 +8,11 @@ iometer.local.cp: This was run on mumble-01 under native Linux in /tmp. Filesyst
 iometer.nodio.mumble: Same as iometer.ext4.cp except with directio=0
 iometer.3replicas.laptop: Same as iometer.ext4.cp but with 3 replicas and the client running on my
 	laptop on CSL's wireless (replicas still in mumble)
+iometer.nodio.local: Same as iometer.nodio.mumble but under native linux (still ext4)
+
+-== seqwrite benchmark ==-
+seqwrite.freebs: seqwrite with three replicas
+seqwrite.local: seqwrite on native Linux, local disk
 
 Notes: it seems that we are actually significantly better than local. Possible reasons:
 	- we don't fsync every write, so maybe we fsync much less
