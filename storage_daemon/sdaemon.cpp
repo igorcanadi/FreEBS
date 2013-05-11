@@ -361,14 +361,14 @@ int handleWriteRequest(enum conn_type src_type, struct fbs_request &request){
         cmgr->send_to_srv(CONN_NEXT, (char *) &prop_fbs_hdr,
                 sizeof(prop_fbs_hdr));
 
-        if ((bytesRW = cmgr->recv_fr_cli(src_type, buffer, request.len)) < 0) {
+        // Recieves data from client and streams the data to the next srv
+        if ((bytesRW = cmgr->fwd_cli_stream(src_type, CONN_NEXT, buffer, request.len)) < 0){
             throw bytesRW;
         }
+
 #ifdef DEBUG
         printf("Server: recieved %d bytes, total: %lu\n", bytesRW, request.len);
 #endif
-        cmgr->send_to_srv(CONN_NEXT, buffer, request.len);
-
         if ((bytesRW = rmgr->write(request.offset,
                 request.len / FBS_SECTORSIZE, request.seq_num, buffer) < 0)) {
             throw bytesRW;
@@ -380,6 +380,7 @@ int handleWriteRequest(enum conn_type src_type, struct fbs_request &request){
     }
 
     delete [] buffer;
+
     return bytesRW;
 }
 

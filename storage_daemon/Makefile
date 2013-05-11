@@ -1,5 +1,5 @@
 CC=g++
-CFLAGS=-std=c++0x -g -O2 -I../lsvd -pthread -DDEBUG -DSYNC
+CFLAGS=-std=c++0x -g -O2 -I../lsvd -pthread #-DDEBUG -DSYNC
 LDFLAGS=-lrt
 all: clean sdaemon test
 

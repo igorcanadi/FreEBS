@@ -40,7 +40,7 @@ public:
     int recv_fr_cli(enum conn_type sel, char * buf, size_t len);
     int send_to_srv(enum conn_type sel, char * buf, size_t len);
     int recv_fr_srv(enum conn_type sel, char * buf, size_t len);
-
+    int fwd_cli_stream(enum conn_type src, enum conn_type dst, char *buf, size_t len);
     int close(enum conn_type sel);
 
 private:

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <fcntl.h>
 #include <string>   // C++ stringz
 
 #include "connmgr.h"
@@ -140,6 +141,10 @@ int ConnectionManager::connect(enum conn_type sel){
         pthread_mutex_unlock(lock);
         return *sock;
     }
+/*
+    int flags = fcntl(*sock, F_GETFL, 0);
+    fcntl(*sock, F_SETFL, flags | O_NONBLOCK);
+*/
     if ((status = ::connect(*sock, (struct sockaddr *) serv_addr, sizeof(struct sockaddr_in))) < 0){
         ::close(*sock);
         *sock = -1;
@@ -302,6 +307,40 @@ int ConnectionManager::recv_fr_srv(enum conn_type sel, char * buf, size_t len){
 #ifdef DEBUG
     printf("recv_fr_srv: %d bytes\n", off);
 #endif
+
+    return off;
+}
+
+// Forward data from one client to another as we receive data
+int ConnectionManager::fwd_cli_stream(enum conn_type src, enum conn_type dst, char *buf, size_t len){
+    int bytesRW, off;
+    int src_fd, dst_fd;
+
+    src_fd = conn_set[src].fd;
+
+    switch(dst){
+    case CONN_PREV:
+        pthread_mutex_lock(&p_lock);
+        dst_fd = cli_psock;
+        pthread_mutex_unlock(&p_lock);
+        break;
+    case CONN_NEXT:
+        pthread_mutex_lock(&n_lock);
+        dst_fd = cli_nsock;
+        pthread_mutex_unlock(&n_lock);
+        break;
+    default:
+        return -1;
+    }
+
+    for (off = 0; off < len; off += bytesRW){
+        if ((bytesRW = recv(src_fd, buf + off, len - off, 0)) < 0){
+            return bytesRW;
+        }
+        // No check for fail because we want to keep 
+        // recieving even if send failed
+        send(dst_fd, buf + off, bytesRW, 0);
+    }
 
     return off;
 }

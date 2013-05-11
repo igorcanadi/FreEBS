@@ -16,6 +16,7 @@
 #include "msgs.h"
 
 #define MAX_VERSION 10
+#define RW_SIZE 131072  // 32 pages  
 
 int connect(const char *name){
     struct sockaddr_in serv_addr;
@@ -24,13 +25,10 @@ int connect(const char *name){
     struct addrinfo *host;
 
     try {
-        printf("Connecting to %s\n", name);
         if (getaddrinfo(name, std::to_string((long long unsigned int)FBS_PORT).c_str(), NULL, &host) < 0){
             throw -1;
         }
-        printf("Connecting to %s\n", name);
         conn = socket(AF_INET, SOCK_STREAM, 0);
-        printf("Socket %d\n", conn);
         if (conn < 0){
             perror("driver_dummy: Socket fail");
             throw conn;
@@ -121,7 +119,7 @@ int sendReadRequest(int conn, uint32_t version, uint32_t off, char read_buf[], s
         return bytesRW;
     }
 
-    printf("Received %d data %s\n", bytesRW, read_buf);
+    printf("Received %d data \n", bytesRW);
 
     return bytesRW;
 }
@@ -152,8 +150,8 @@ int recvResponse(int conn){
 // Test propagation functionality
 int testProp(int len, char *hostnames[]){
     struct fbs_response response;
-    char write_buf[KERNEL_SECTOR_SIZE];
-    char read_buf[KERNEL_SECTOR_SIZE];
+    char write_buf[RW_SIZE];
+    char read_buf[RW_SIZE];
     int bytesRW = 0;
     int accepted = 0;
 
@@ -219,8 +217,8 @@ int testProp(int len, char *hostnames[]){
 
 int testSync(int len, char *hostnames[]){
     struct fbs_response response;
-    char write_buf[MAX_VERSION][KERNEL_SECTOR_SIZE];
-    char read_buf[MAX_VERSION][KERNEL_SECTOR_SIZE];
+    char write_buf[MAX_VERSION][RW_SIZE];
+    char read_buf[MAX_VERSION][RW_SIZE];
     int bytesRW = 0;
 
     int *sock = new int[len];
