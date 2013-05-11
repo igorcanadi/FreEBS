@@ -3,4 +3,5 @@
 lsvd_test
 open
 write
+cleanup
 results/*
