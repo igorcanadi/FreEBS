@@ -1,0 +1,64 @@
+\documentclass{sig-alternate-10pt}
+
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{url}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{color}
+\usepackage{comment}
+\usepackage{multirow}
+\usepackage{booktabs}
+
+\begin{document}
+
+\title{FreEBS - A Virtual Block Storage System}
+
+\author{
+	\alignauthor Igor Canadi, Rebecca Lam, James Paton\\
+	\affaddr{University of Wisconsin-Madison}\\
+	\email{\{canadi,rjlam,jpaton\}@cs.wisc.edu}
+}
+
+\maketitle
+
+\input{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+\input{intro}
+
+\section{System Architecture}
+\label{sec:architecture}
+\input{architecture}
+
+\section{Replication}
+\label{sec:replication}
+\input{replication}
+
+\section{Log Structured Virtual Disk}
+\label{sec:lsvd}
+\input{lsvd}
+
+\section{Methodology}
+\label{sec:method}
+\input{method}
+
+\section{Results}
+\label{sec:results}
+\input{results}
+
+\section{Conclusion}
+\label{sec:conc}
+\input{conc}
+
+\bibliographystyle{plain}
+\bibliography{biblio}
+
+\end{document}
+
+
+
