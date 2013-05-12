@@ -21,8 +21,30 @@ void generate_random(char *buf, int len) {
     }
 }
 
+inline uint64_t rdtsc_start(void) {
+    unsigned cycles_high, cycles_low;
+
+    __asm__ __volatile__("CPUID\n\t"
+            "RDTSC\n\t"
+            "mov %%edx, %0\n\t"
+            "mov %%eax, %1\n\t" : "=r" (cycles_high), "=r" (cycles_low):: "%rax", "%rbx", "%rcx", "%rdx");
+
+    return (uint64_t)cycles_high << 32 | (uint64_t)cycles_low;
+}
+
+inline uint64_t rdtsc_end(void) {
+    unsigned cycles_high, cycles_low;
+
+    __asm__ __volatile__("RDTSCP\n\t"
+            "mov %%edx, %0\n\t"
+            "mov %%eax, %1\n\t" : "=r" (cycles_high), "=r" (cycles_low):: "%rax", "%rbx", "%rcx", "%rdx");
+
+    return (uint64_t)cycles_high << 32 | (uint64_t)cycles_low;
+}
+
 int main() {
     uint64_t i;
+    uint64_t start, end;
     struct lsvd_disk *lsvd;
     struct sigaction act;
     char *data = (char *)malloc(SECTOR_SIZE * 10);
@@ -47,7 +69,10 @@ int main() {
             printf("%llu\n", get_version(lsvd));
             return 0;
         }
+        start = rdtsc_start();
         assert(write_lsvd(lsvd, data, 10, rand() % (SIZE / SECTOR_SIZE - 15), i+1) == 0);
+        end = rdtsc_end();
+        printf("%llu %llu\n", (i+1), end - start);
     }
 
     close_lsvd(lsvd);
