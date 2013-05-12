@@ -1,0 +1,30 @@
+seq_write: (g=0): rw=write, bs=512-512/512-512, ioengine=sync, iodepth=1
+2.0.8
+Starting 1 process
+seq_write: Laying out IO file(s) (1 file(s) / 256MB)
+
+seq_write: (groupid=0, jobs=1): err= 0: pid=2311
+  write: io=262144KB, bw=21240KB/s, iops=42479 , runt= 12342msec
+    clat (usec): min=0 , max=106348 , avg= 8.25, stdev=148.06
+     lat (usec): min=0 , max=106351 , avg=12.74, stdev=148.38
+    clat percentiles (usec):
+     |  1.00th=[    5],  5.00th=[    6], 10.00th=[    6], 20.00th=[    6],
+     | 30.00th=[    6], 40.00th=[    6], 50.00th=[    7], 60.00th=[    7],
+     | 70.00th=[    7], 80.00th=[    9], 90.00th=[   11], 95.00th=[   16],
+     | 99.00th=[   23], 99.50th=[   33], 99.90th=[   91], 99.95th=[  105],
+     | 99.99th=[  820]
+    bw (KB/s)  : min=16760, max=27116, per=100.00%, avg=21265.29, stdev=2219.81
+    lat (usec) : 2=0.16%, 4=0.03%, 10=83.35%, 20=14.39%, 50=1.77%
+    lat (usec) : 100=0.24%, 250=0.05%, 500=0.01%, 750=0.01%, 1000=0.01%
+    lat (msec) : 2=0.01%, 4=0.01%, 10=0.01%, 250=0.01%
+  cpu          : usr=97.17%, sys=1.10%, ctx=356, majf=0, minf=23
+  IO depths    : 1=100.0%, 2=0.0%, 4=0.0%, 8=0.0%, 16=0.0%, 32=0.0%, >=64=0.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     issued    : total=r=0/w=524288/d=0, short=r=0/w=0/d=0
+
+Run status group 0 (all jobs):
+  WRITE: io=262144KB, aggrb=21239KB/s, minb=21239KB/s, maxb=21239KB/s, mint=12342msec, maxt=12342msec
+
+Disk stats (read/write):
+  freebs: ios=0/1228, merge=0/7, ticks=0/1421064, in_queue=1515076, util=86.38%

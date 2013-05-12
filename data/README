@@ -25,9 +25,14 @@ read.freebs.dat: 3 replicas in mumble lab
 read.local.dat: same thing except local
 
 -== randw.ini benchmark ==-
-Replica file: 
-randw.freebs.dat: 3 replicas in mumble lab
+Replica file: 285M before and after cleanup (!?)
+randw.freebs.dat: 3 replicas in mumble lab (NOTE: used 8192 byte blocks)
 randw.local.dat: same thing except local
+
+-== randr.ini benchmark ==-
+Replica file: 285M before and after cleanup (!?)
+randr.freebs.dat: 3 replicas in mumble lab
+randr.local.dat: same thing except local
 
 Notes: it seems that we are actually significantly better than local. Possible reasons:
 	- we don't fsync every write, so maybe we fsync much less
