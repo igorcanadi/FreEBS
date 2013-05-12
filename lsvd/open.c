@@ -38,7 +38,7 @@ int main() {
     printf("%llu\n", get_version(lsvd));
     close_lsvd(lsvd);
 
-    printf("%llu\n", end - start);
+    printf("%lf\n", ((double)end - start) / 2.4e9);
 
     return 0;
 }

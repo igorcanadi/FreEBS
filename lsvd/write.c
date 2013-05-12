@@ -6,7 +6,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include "lsvd.h"
-#define SIZE 100*1024*1024*1024LL // 100GB
+#define SIZE 20*1024*1024*1024LL // 20GB
 
 volatile sig_atomic_t eflag = 0;
 

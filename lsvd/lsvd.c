@@ -24,7 +24,7 @@
         sizeof(struct data_record) + sizeof(struct commit_record) + \
         LENGTH * SECTOR_SIZE
 
-#define CHECKPOINT_BATCH_SIZE (8*1024*1024) // 8MB
+#define CHECKPOINT_BATCH_SIZE (2*1024*1024) // 2MB
 
 #define CHECKPOINT_INIT          (1 << 0)
 #define CHECKPOINT_FORCED        (1 << 1)
