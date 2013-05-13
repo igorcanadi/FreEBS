@@ -16,7 +16,7 @@
   fbs_printk(KERN_ERR, fmt, ##__VA_ARGS__)
 
 #define fbs_debug(fmt, ...) \
-  //fbs_printk(KERN_DEBUG, fmt, ##__VA_ARGS__)
+  fbs_printk(KERN_DEBUG, fmt, ##__VA_ARGS__)
 
 struct freebs_socket {
     struct mutex mutex;
