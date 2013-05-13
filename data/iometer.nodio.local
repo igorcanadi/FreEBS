@@ -1,0 +1,45 @@
+iometer: (g=0): rw=randrw, bs=512-64K/512-64K/512-64K, ioengine=libaio, iodepth=64
+fio-2.0.15
+Starting 1 process
+
+iometer: (groupid=0, jobs=1): err= 0: pid=6493: Fri May 10 23:26:26 2013
+  Description  : [Emulation of Intel IOmeter File Server Access Pattern]
+  read : io=326081KB, bw=3256.4KB/s, iops=541 , runt=100137msec
+    slat (usec): min=1 , max=734511 , avg=1488.50, stdev=7065.97
+    clat (usec): min=6 , max=2841.7K, avg=92747.08, stdev=151004.97
+     lat (usec): min=9 , max=2849.6K, avg=94235.80, stdev=153206.06
+    clat percentiles (usec):
+     |  1.00th=[  318],  5.00th=[  370], 10.00th=[  466], 20.00th=[ 4320],
+     | 30.00th=[11456], 40.00th=[21376], 50.00th=[34560], 60.00th=[57088],
+     | 70.00th=[86528], 80.00th=[158720], 90.00th=[280576], 95.00th=[354304],
+     | 99.00th=[585728], 99.50th=[757760], 99.90th=[1810432], 99.95th=[2211840],
+     | 99.99th=[2703360]
+    bw (KB/s)  : min=   36, max=94327, per=98.25%, avg=3199.17, stdev=7610.42
+  write: io=83745KB, bw=856370 B/s, iops=137 , runt=100137msec
+    slat (usec): min=2 , max=587575 , avg=1399.36, stdev=8876.86
+    clat (usec): min=14 , max=2692.6K, avg=92973.55, stdev=148803.99
+     lat (usec): min=19 , max=2827.7K, avg=94373.19, stdev=151095.52
+    clat percentiles (usec):
+     |  1.00th=[  322],  5.00th=[  374], 10.00th=[  466], 20.00th=[ 4640],
+     | 30.00th=[11712], 40.00th=[21888], 50.00th=[34560], 60.00th=[57600],
+     | 70.00th=[86528], 80.00th=[156672], 90.00th=[284672], 95.00th=[358400],
+     | 99.00th=[585728], 99.50th=[741376], 99.90th=[1581056], 99.95th=[2088960],
+     | 99.99th=[2539520]
+    bw (KB/s)  : min=   10, max=21574, per=98.38%, avg=822.49, stdev=1797.25
+    lat (usec) : 10=0.01%, 20=0.01%, 50=0.01%, 100=0.01%, 250=0.04%
+    lat (usec) : 500=11.23%, 750=6.92%, 1000=0.48%
+    lat (msec) : 2=0.26%, 4=0.61%, 10=8.00%, 20=10.97%, 50=18.31%
+    lat (msec) : 100=16.20%, 250=14.52%, 500=10.77%, 750=1.16%, 1000=0.24%
+    lat (msec) : 2000=0.18%, >=2000=0.09%
+  cpu          : usr=0.20%, sys=1.20%, ctx=12496, majf=0, minf=29
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, >=64=99.9%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, >=64=0.0%
+     issued    : total=r=54217/w=13769/d=0, short=r=0/w=0/d=0
+
+Run status group 0 (all jobs):
+   READ: io=326080KB, aggrb=3256KB/s, minb=3256KB/s, maxb=3256KB/s, mint=100137msec, maxt=100137msec
+  WRITE: io=83744KB, aggrb=836KB/s, minb=836KB/s, maxb=836KB/s, mint=100137msec, maxt=100137msec
+
+Disk stats (read/write):
+  sda: ios=21507/1113, merge=33/4737, ticks=261993/177084, in_queue=439073, util=99.54%
