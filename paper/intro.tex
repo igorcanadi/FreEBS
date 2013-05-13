@@ -1,0 +1,46 @@
+FreEBS is a distributed virtual block device that utilizes replication and 
+log-based storage to provide reliability and durability. The major 
+goal of FreEBS is to create a free and open version of Amazon Elastic Block 
+Store (EBS)\cite{amazonEBS}, a virtual mountable block device used by EC2 
+instances whose implementation details have not been publicized. 
+
+There are two main features that are publicly known about Amazon EBS --- 
+replication and snapshots. EBS mirrors volume data across different 
+servers within the same 
+Availability Zone. This provides some increased reliability over a single 
+disk, but EBS further adds durability using snapshots. Snapshots are 
+customizable incremental backups stored on Amazon S3. Each snapshot only 
+saves the blocks that have been modified since the last snapshot. The 
+frequency at which they are performed determines the durability of the volume
+in the case that the EBS volume fails. \cite{amazonEBS} 
+
+Because of the lack of concrete, detailed information about Amazon EBS, we 
+draw many of our ideas about EBS from Distributed Replicated Block 
+Device\textsuperscript{\textregistered}(DRBD)\cite{drbd}, an open source 
+virtual RAID-1 block device. We discuss DRBD\textsuperscript{\textregistered}
+in more detail in Section~\ref{sec:related}.
+
+Given what we know of EBS and DRBD, FreEBS seeks to provide the below:
+
+\begin{description}
+    \item[Availability]{The system should continue to operate with a certain
+            number of replica failures.}
+    \item[Durability]{In the case of a failure, the most recent data should
+            still exist on the volume.}
+    \item[Snapshots]{Our backing file should support snapshots.}
+    \item[Reliability]{The system should operate as expected and behave
+            deterministically.}
+\end{description}
+
+We address these goals by using replica servers that coordinate using a
+userspace process on each machine. These replicas propagate writes and 
+perform synchronization. They also interact with a log-structured virtual 
+disk that provides checkpointing and the framework for snapshotting. 
+\emph{Talk briefly about results here?}
+
+The rest of the paper is organized as follows. In Section~\ref{sec:related}
+we discuss related work, and in Section~\ref{sec:design} we explain the 
+overall design of the system. We go into more detail about our system in 
+Section~\ref{sec:implementation}. Finally, we evaluate our design and draw
+appropriate conclusions in Section~\ref{sec:evaluation} and 
+Section~\ref{sec:conc}, respectively.
