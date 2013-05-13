@@ -15,6 +15,9 @@
 *.exe
 *.out
 *.app
+storage_daemon/sdaemon
+storage_daemon/driver_dummy
+storage_daemon/replica_test
 
 # latex bs
 paper/*.aux
@@ -40,3 +43,6 @@ paper/*.mtc
 paper/*.mtc1
 paper/*.out
 paper/*.synctex.gz
+
+# .orig files (?)
+*.orig
