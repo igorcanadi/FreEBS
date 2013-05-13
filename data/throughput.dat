@@ -4,11 +4,9 @@ iometer.freebs.read 2961
 iometer.local.read 3256
 write.freebs.write 21239
 write.local.write 208879
-
 read.freebs.read 23303
 read.local.read 551882
 randr.freebs.read 2631
 randr.local.read 311705
 randw.freebs.write 3110
 randw.local.write 178329
-
