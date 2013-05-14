@@ -1,4 +1,58 @@
 \subsection{DRBD}
 \label{sec:drbd}
+DRBD\textsuperscript{\textregistered} is a virtual RAID-1 block storage 
+device consisting of multiple shared-nothing nodes. The 
+DRBD\textsuperscript{\textregistered} interface is implemented as a kernel 
+module that can be mounted like a normal block 
+device. In this section we focus on replication and synchronization.
 
-\emph{Stuff about DRBD} ?
+\paragraph{Replication}
+DRBD\textsuperscript{\textregistered} uses a RAID-1 method of replication, 
+meaning there are two nodes in a basic DRBD\textsuperscript{\textregistered} 
+cluster --- one \emph{primary} and one \emph{secondary} --- that each
+contain typical Linux kernel components\cite{drbd, drbd_manual}. The 
+primary node 
+services all reads and writes, and the secondary node fully mirrors the 
+primary node by propagation of writes across the network. If the primary 
+node fails, then service migrates to the secondary node. There are two 
+main modes for replication --- fully synchronous and asynchronous. 
+The former means that the primary node reports a completed write only after 
+the write has been committed to both nodes in the cluster. The latter means 
+that each node reports a successful write as soon as the data is written to 
+its local disk. 
+
+FreEBS uses a similar technique to the asynchronous method of replication;
+we utilize a primary replica that services reads and propagates write 
+requests. However, FreEBS waits for a majority of replicas to respond with a
+successful write completion. Our system also offers much more flexibility in 
+terms of the number of configurable replicas. For instance, 
+DRBD\textsuperscript{\textregistered} must use 
+stacked DRBD volumes in order to create more than two replicas, which can 
+get cumbersome as we add more replicas.
+
+\paragraph{Synchronization} 
+DRBD\textsuperscript{\textregistered} offers 
+variable-rate and fixed-rate synchronization\cite{drbd_manual}.
+For the first method, DRBD\textsuperscript{\textregistered} selects a 
+synchronization rate
+based on the network bandwidth. For the fixed-rate case, synchronization is
+performed periodically at some constant time interval. Synchronization 
+can be made more efficient by using checksums to identify blocks that have 
+changed since the last synchronization. This eliminates the need to 
+synchronize blocks that were overwritten with identical contents. Changes
+are tracked using the activity log (AL) which records \emph{hot extents}, 
+the blocks that have been modified between synchronization points. The 
+activity log uses a quick-sync bitmap to keep track of modified blocks.
+
+FreEBS uses a fixed-rate synchronization method that allows nodes to request 
+all writes since an arbitrary version. \emph{Describe how LSVD fetches 
+writes here???}
+
+\emph{should we include the DRBD figure here?}
+
+\subsection{Distributed File Systems}
+AFS
+NFS
+Cassandra
+Openstack
+Eucalyptus

@@ -55,7 +55,8 @@ replica C sends a SYNC request with the version number of its local LSVD
 copy to the previous replica in the chain, replica B. Replica B then responds
 with all the writes from C.version to B.version. Replica C then applies all 
 the writes to its LSVD. After the synchronization operation, Replica C's 
-LSVD version is equal to B's version.
+LSVD version is equal to B's version. Similarly, replica B initiates the 
+synchronization procedure with replica A.
 
 To handle failure, a replica controller is used to inform the driver and 
 neighboring replicas that a failure has occured. This controller keeps track 
@@ -68,7 +69,7 @@ receipt of the update messages, the two neighboring replicas connect to each
 other. The latter replica sends a SYNC request, and then normal operation 
 resumes. Meanwhile, the controller spins off a new \texttt{sdaemon} process
 that is appended to the end of the chain. Note that currently the replica 
-controller is not been implemented.
+controller is not implemented.
 
 \begin{figure}[t]
     \includegraphics[width=0.45\textwidth, trim=0 2in 0 3in, clip]{./figures/sync.pdf}
@@ -87,3 +88,6 @@ controller is not been implemented.
     \caption{The LSVD file structure.}
     \label{fig:lsvd}
 \end{figure}
+
+\emph{Discussion on how versioning works, how we can retrieve arbitrary 
+writes (change logs?) how we can easily extend this framework for snapshotting.}
