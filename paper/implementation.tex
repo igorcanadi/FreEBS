@@ -61,7 +61,7 @@ synchronization procedure with replica A.
 To handle failure, a replica controller is used to inform the driver and 
 neighboring replicas that a failure has occured. This controller keeps track 
 of the liveliness of each replica by recording the elapsed time since the 
-last hearbeat message, which is sent every $T$ seconds by each replica. After
+last heartbeat message, which is sent every $T$ seconds by each replica. After
 $2T$ seconds the controller flags the replica as \emph{inactive} and after 
 $4T$ seconds the replica is marked as failed. Upon failure, the controller 
 informs the kernel and the neighboring replicas using update messages. Upon
@@ -82,9 +82,16 @@ controller is not implemented.
 \subsection{Log Structured Virtual Disk}
 \label{sec:lsvd}
 
+When designing our file format to back virtual disk, we had few goals in mind. First, the file should be dynamically growing. If a disk was defined with $D$ bytes free space and user is using only $C$ bytes for his content, the backing file size should use $O(C)$ bytes. Second, we have to support versioning. We define version as update sequence number. Each update increments disk version by one. To enable synchronization, storage deamon has to be aware of the current local disk version and has to be able to send arbitrary version updates to other replicas for synchronization. Third goals was consistency. If the local data has version $V$, it should include all updates with versions less than or equal to $V$ and none of the updates with versions bigger than $V$. Finally, our fourth goal was ability to easily support snapshots and incremental backups.
+
+To address all these requirements, we developed Log Structured Virtual Disk (LSVD). When we receive updates, we just write them sequentially on a disk and increment version number by one. That way, we are dynamically growing. We also support versioning and are consistent, since we remember all updates together with their version number. Finally, it is easy to support snapshoting and incremental backups. On snapshot operation, we just create new file and use old file as a base. New updates go to the new file and we can read old data from old, read-only base file.
+
+Figure \ref{fig:lsvd} shows the actual data layout in LSVD file. First few bytes define the superblock, which contains important metadata. Next, there are two checkpointing placeholders. After that, actual updates are layed out. Each update consists of data block and commit block. Data block can hold one or more sectors. Io our implementation, we use 4KB sector sizes. Commit block verifies integrity of the data block by storing its checksum. To be able to guarantee consistency, we need to have atomic version writes. If a commit block is not written to disk or checksum is invalid, we define the update as not commited.
+
+On a write, we just append write to the end of the file with additional metadata. On a read, therefore, we need to be able to find requested sectors on the disk. For that, we keep in-memory \emph{sector to offset map}. It maps disk sectors to file offsets where the sector's data is stored. On every write, we easily update the map. When opening a disk after recovery, we are able to rebuild sector to offset map by reading all the updates from the beginning of time. That would, however, be very slow. To keep recovery time from growing linearly with time, we do \emph{checkpointing}. Every 60 seconds, we write the sector to offset map to disk into one of the checkpointing placeholders at the beginning of the file. We execute checkpointing writes slowly. That way, we do not slow down regular write or read operations, especially since checkpointing writes are random writes. Superblock keeps a pointer to an active checkpoint. After the checkpoint is fully written to one of the placeholders, we update the superblock and \texttt{fsync}. During recovery, checkpoint is loaded into memory and recovery continues from the point in time when checkpoint was started. That way, we limit recovery time and keep it from not growing linearly with time.
 
 \begin{figure}[h]
-    \includegraphics[width=0.45\textwidth, trim=0 3in 0 2in, clip]{./figures/lsvd.pdf}
+    \includegraphics[width=0.45\textwidth]{./figures/lsvd.pdf}
     \caption{The LSVD file structure.}
     \label{fig:lsvd}
 \end{figure}

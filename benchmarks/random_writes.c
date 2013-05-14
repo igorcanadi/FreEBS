@@ -7,7 +7,7 @@
 #include <sys/mman.h>
 #define SIZE 5*1024*1024*1024LL // 5GB
 #define BLOCK_SIZE 4*1024 // 4KB
-#define TOTAL_WRITES 1*1024*1024LL // total of 512MB written
+#define TOTAL_WRITES 512*1024*1024LL // total of 512MB written
 
 inline uint64_t rdtsc_start(void) {
     unsigned cycles_high, cycles_low;
