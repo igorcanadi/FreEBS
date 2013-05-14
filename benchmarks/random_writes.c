@@ -7,7 +7,7 @@
 #include <sys/mman.h>
 #define SIZE 5*1024*1024*1024LL // 5GB
 #define BLOCK_SIZE 4*1024 // 4KB
-#define TOTAL_WRITES 512*1024*1024LL // total of 512MB written
+#define TOTAL_WRITES 1*1024*1024LL // total of 512MB written
 
 inline uint64_t rdtsc_start(void) {
     unsigned cycles_high, cycles_low;
@@ -43,10 +43,13 @@ int main(int argc, char **argv) {
 
     if (argc < 2) {
         printf("usage: %s filename\n", argv[0]);
-        printf("this has to be run with file 5GB big\n");
         return 1;
     }
     fd = open(argv[1], O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
+
+    lseek(fd, SIZE-1, SEEK_SET);
+    write(fd, "", 1);
+    fsync(fd);
 
     start = rdtsc_start();
     for (i = 0; i < TOTAL_WRITES / BLOCK_SIZE; ++i) {
