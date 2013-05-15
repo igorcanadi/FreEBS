@@ -99,3 +99,34 @@ On a write, we just append write to the end of the file with additional metadata
 
 The problem with storing data in log structured format is garbage collection. Even though a sector has been overwritten by newer data, we still keep an old version around. We can use it to our advantage and provide a feature that enables users to recover the disk state from arbitrary point in time. However, we decided to implement garbage collection with a goal of reclaiming state from sectors that have been overwritten with newer data. To do this, we developed a separate \texttt{cleanup} function that reads in a LSVD file and creates a new file containing only up-to-date updates. The \texttt{cleanup} function reads in the file and reconstructs sector to offset map. It then starts at the beginning of the file and considers all updates on the disk. If any of the sectors contained in an update is up-to-date, the update is appended to the new file. If all of the sectors have been overwritten, the update is skipped. Since the LSVD file is consistent on a disk at any point in time, we can execute cleanup during live operation. Once the new file is constructed, it can be brought up to date with the replica synchronization protocol. After it has been brought up to date, we can transparently change the active to and delete the old file. We have not implemented the hot swap, though. We evaluated cleanup function on offline LSVD files. There are two drawback of this garbage collection approach. First, it has to read in and process the whole file, which is a slow operation. Second, it requires enough free space on the current drive to store the new file. However, if we store $O(n)$ files on the disk and run cleanup on them in round robin fashion, we need free space for only $O(1)$ disks.
 
+We implemented LSVD as a C library. Figure \ref{fig:lsvdinterface} shows the interface exposed by the library. Most of the functions are straight-forward. We use functions \texttt{get\_writes\_lsvd} and \texttt{put\_writes\_lsvd} to support replica synchronization. \texttt{get\_writes\_lsvd} returns raw update data for all updates since \texttt{first\_version}. We don't keep track of version to offset map, so we have to scan all the updates backwards until we encounter version less then or equal to \texttt{first\_version}. Once we find the requested starting version, we copy raw update data into the buffer. The raw data is then transferred to the lagging replica and appended to its LSVD file using function \texttt{put\_writes\_lsvd}, bringing it up to date.
+
+\lstset{language=C}
+\lstset{basicstyle=\small}
+\lstset{frame=tlrb}
+\begin{figure}
+\begin{lstlisting}
+struct lsvd_disk *create_lsvd(
+	const char *pathname, uint64_t size);
+struct lsvd_disk *open_lsvd(
+	const char *pathname);
+int cleanup_lsvd(const char *old_pathname, 
+	const char *new_pathname);
+int read_lsvd(struct lsvd_disk *lsvd,
+	char *buf, uint64_t length,
+	uint64_t offset, uint64_t version);
+int write_lsvd(struct lsvd_disk *lsvd,
+	const char *buf, uint64_t length, 
+	uint64_t offset, uint64_t version);
+int fsync_lsvd(struct lsvd_disk *lsvd);
+uint64_t get_version(struct lsvd_disk *lsvd);
+char *get_writes_lsvd(struct lsvd_disk *lsvd, 
+	uint64_t first_version, size_t *size);
+int put_writes_lsvd(struct lsvd_disk *lsvd, 
+	uint64_t first_version, char *buf,
+	size_t size);
+int close_lsvd(struct lsvd_disk *lsvd);
+\end{lstlisting}
+\caption{LSVD library interface}
+\label{fig:lsvdinterface}
+\end{figure}
