@@ -1,3 +1,12 @@
+\begin{figure}[b!]
+    \includegraphics[width=0.45\textwidth]{./figures/systemarch.pdf}    
+    \caption{The system architecture for FreEBS. A driver on the client 
+            machine communicates with processes on the replicas on server 
+            machines to read and write data.}
+    \label{fig:architecture}
+\end{figure}
+
+
 FreEBS is a virtual block device backed by replication and log-structured
 virtual disks for high reliability and availability. For all intents and 
 purposes, the FreEBS storage system appears to the kernel as a normal block
@@ -21,13 +30,5 @@ that actually holds the device data, \emph{Log Structured Virtual Disk}
 dynamically growing file format. It provides checkpointing and versioning 
 for high data integrity. A more in-depth discussion about LSVD is in 
 Section~\ref{sec:lsvd}.
-
-\begin{figure}[h]
-    \includegraphics[width=0.45\textwidth]{./figures/systemarch.pdf}    
-    \caption{The system architecture for FreEBS. A driver on the client 
-            machine communicates with processes on the replicas on server 
-            machines to read and write data.}
-    \label{fig:architecture}
-\end{figure}
 
 

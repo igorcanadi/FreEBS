@@ -2,21 +2,28 @@ FreEBS is a distributed virtual block device that utilizes replication and
 log-based storage to provide reliability and durability. The major 
 goal of FreEBS is to create a free and open version of Amazon Elastic Block 
 Store (EBS)\cite{amazonEBS}, a virtual mountable block device used by EC2 
-instances whose implementation details have not been publicized. 
+instances. Many implementation details about EBS have not been publicized,
+but many speculate that EBS is based on 
+DRBD\textsuperscript{\textregistered}\cite{drbd}. 
 
 There are two main features that are publicly known about Amazon EBS --- 
 replication and snapshots. EBS mirrors volume data across different 
-servers within the same 
-Availability Zone. This provides some increased reliability over a single 
-disk, but EBS further adds durability using snapshots. Snapshots are 
+servers within the same Availability Zone. This provides some increased 
+reliability over a single disk, but EBS further adds durability using 
+snapshots. Snapshots are 
 customizable incremental backups stored on Amazon S3. Each snapshot only 
-saves the blocks that have been modified since the last snapshot. The 
-frequency at which they are performed determines the durability of the volume
-in the case that the EBS volume fails. \cite{amazonEBS} 
+saves the blocks that have been modified since the last snapshot. For each
+snapshot there is a table of contents that maps each EBS volume block to 
+the valid corresponding block in S3. When a snapshot is deleted, only 
+blocks that are not pointed to by any other snapshot are removed from S3. 
+Because snapshots only keep track of modified blocks, they take less 
+time to perform than a full-volume backup, and require less space to store. 
+The frequency at which they are performed determines the durability of 
+the volume in the case that the EBS volume fails. \cite{amazonEBS} 
 
-Because of the lack of concrete, detailed information about Amazon EBS, we 
-draw many of our ideas about EBS from Distributed Replicated Block 
-Device\textsuperscript{\textregistered}(DRBD)\cite{drbd}, an open source 
+Due to the lack of concrete, detailed information about Amazon EBS, we 
+draw many of our ideas about how EBS is implemented from Distributed Replicated 
+Block Device\textsuperscript{\textregistered} (DRBD)\cite{drbd}, an open source 
 virtual RAID-1 block device. We discuss DRBD\textsuperscript{\textregistered}
 in more detail in Section~\ref{sec:related}.
 
@@ -27,16 +34,18 @@ Given what we know of EBS and DRBD, FreEBS seeks to provide the below:
             number of replica failures.}
     \item[Durability]{In the case of a failure, the most recent data should
             still exist on the volume.}
-    \item[Snapshots]{Our backing file should support snapshots.}
     \item[Reliability]{The system should operate as expected and behave
             deterministically.}
+    \item[Snapshots]{Our backing file should support snapshots and incremental backups}
 \end{description}
 
 We address these goals by using replica servers that coordinate using a
 userspace process on each machine. These replicas propagate writes and 
 perform synchronization. They also interact with a log-structured virtual 
-disk that provides checkpointing and the framework for snapshotting. 
-\emph{Talk briefly about results here?}
+disk that provides checkpointing, mechanism for recovery, and the 
+framework for snapshotting. 
+
+\XXX{Talk briefly about results here?}
 
 The rest of the paper is organized as follows. In Section~\ref{sec:related}
 we discuss related work, and in Section~\ref{sec:design} we explain the 

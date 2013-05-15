@@ -1,12 +1,14 @@
 \subsection{DRBD}
 \label{sec:drbd}
 DRBD\textsuperscript{\textregistered} is a virtual RAID-1 block storage 
-device consisting of multiple shared-nothing nodes. The 
-DRBD\textsuperscript{\textregistered} interface is implemented as a kernel 
-module that can be mounted like a normal block 
-device. In this section we focus on replication and synchronization.
+device consisting of two shared-nothing node that form a highly available
+\emph{cluster}. The DRBD\textsuperscript{\textregistered} interface is 
+implemented as a kernel module that can be mounted like a normal block 
+device. Since it is an open-source project, many aspects of its 
+implementation are availble; however, in this section we focus on the
+details of replication and synchronization.
 
-\paragraph{Replication}
+\subsubsection{Replication}
 DRBD\textsuperscript{\textregistered} uses a RAID-1 method of replication, 
 meaning there are two nodes in a basic DRBD\textsuperscript{\textregistered} 
 cluster --- one \emph{primary} and one \emph{secondary} --- that each
@@ -30,7 +32,7 @@ DRBD\textsuperscript{\textregistered} must use
 stacked DRBD volumes in order to create more than two replicas, which can 
 get cumbersome as we add more replicas.
 
-\paragraph{Synchronization} 
+\subsubsection{Synchronization} 
 DRBD\textsuperscript{\textregistered} offers 
 variable-rate and fixed-rate synchronization\cite{drbd_manual}.
 For the first method, DRBD\textsuperscript{\textregistered} selects a 
@@ -44,9 +46,10 @@ are tracked using the activity log (AL) which records \emph{hot extents},
 the blocks that have been modified between synchronization points. The 
 activity log uses a quick-sync bitmap to keep track of modified blocks.
 
-FreEBS uses a fixed-rate synchronization method that allows nodes to request 
-all writes since an arbitrary version. \XXX{Describe how LSVD fetches 
-writes here???}
+FreEBS uses a fixed-rate synchronization scheme that allows nodes to request 
+all writes since a particular version. This is done by backward traversal 
+through our log-based backing file until the requested version is found, 
+eliminating the need to have a separate activity log.
 
 %\emph{Should we include the DRBD figure here?}
 
