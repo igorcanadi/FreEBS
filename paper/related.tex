@@ -48,11 +48,43 @@ FreEBS uses a fixed-rate synchronization method that allows nodes to request
 all writes since an arbitrary version. \emph{Describe how LSVD fetches 
 writes here???}
 
-\emph{should we include the DRBD figure here?}
+%\emph{Should we include the DRBD figure here?}
 
-\subsection{Distributed File Systems}
-AFS
-NFS
-Cassandra
-Openstack
-Eucalyptus
+\subsection{Cloud Storage}
+Rackspace Cloud Block Storage (CBS) and HP Cloud Block Storage provide 
+persistent storage for their cloud instances\cite{rackspace, hp}. Both also 
+support snapshots. However, unlike EBS snapshots, Rackspace CBS contains the 
+full directory structure of a volume. Both HP CBS and Rackspace CBS are 
+built on the OpenStack storage platform. Another commercially available 
+cloud block storage is Zadara\texttrademark Virtual Private Storage 
+Arrays\cite{zadara}, which is a cloud-based NAS service that iSCSI and NFS 
+protocols.  
+
+\subsection{Network Block Level Storage Systems}
+There is a fair amount of work on the subject of network block level storage.
+For instance, in 1996 Lee and Thekkath published a paper on Petal, a 
+distributed virtual disk system\cite{lee1996petal}. In this system, a cluster
+of servers manage a shared pool of physical disks and present the client 
+with a virtual disk. Virtual disks are globally accessible to all
+Petal clients, not one-to-one like FreEBS. Petal handles failure by 
+chain-replicating blocks with one neighboring server. If one disk goes down,
+then the server with the replica block will serve the request. 
+
+In \cite{dabek2001wide} Dabek et al. discuss Cooperative File System (CFS), 
+a peer-to-peer read-only block storage system with robustness and 
+scalability in mind. CFS uses a distributed hash table to map blocks to a CFS
+server and utilizes block-level replication to increase reliability. 
+Block replicas exist on the subsequent $k$ servers based on the corresponding
+hash value for that block; thus, the next server in the hash takes up 
+responsibility for serving that block.  
+
+Conversely, Quinlan and Dorward present Venti, a network storage system that
+uses a write-once only policy for archival data\cite{quinlan2002venti}. Venti
+is a userspace daemon that performs block level reads and permanent writes. 
+Venti provides reliability and recovery by relying on RAID-5 disk arrays 
+rather than mirroring.  
+
+The main difference between these works and FreEBS is that they are built 
+for a shared virtual disk system and thus consider scalability and load
+balancing.
+
