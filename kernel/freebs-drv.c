@@ -35,7 +35,9 @@ static u_int freebs_major = 0;
 struct freebs_device fbs_dev;
 
 static struct kmem_cache *fbs_req_cache;
+static mempool_t *fbs_req_pool;
 static struct kmem_cache *sender_work_cache;
+static mempool_t *sender_work_pool;
 
 static char *replica_ips[10];
 static int num_replicas;
@@ -142,7 +144,7 @@ void enqueue_request(struct list_head *new, struct list_head *queue, struct mute
 void del_request(struct freebs_request *req)
 {
     list_del(&req->queue);
-    kmem_cache_free(fbs_req_cache, req);
+    mempool_free(req, fbs_req_pool);
 }
 
 /**
@@ -226,7 +228,6 @@ void fail_request(struct freebs_request *req)
     fbs_err("failing request %d, seq_num %d\n", req->req_num, req->seq_num);
     blk_end_request_all(req->req, -1);
     del_request(req);
-    kmem_cache_free(fbs_req_cache, req);
 }
 
 void fail_all_requests(struct freebs_device *fbs_dev)
@@ -301,7 +302,8 @@ int freebs_receiver(void *private)
             goto unlock;
         }
         del_request(fbs_req);
-        blk_end_request_all(req, status); 
+        //blk_end_request_all(req, status); 
+        blk_end_request(req, status, fbs_req->size);
 unlock:
         mutex_unlock(&fbs_dev->in_flight_l);
     }
@@ -318,7 +320,6 @@ void freebs_sender(struct work_struct *work)
     struct req_iterator iter;
     struct fbs_header hdr;
     sector_t sector_offset;
-    sector_t sectors;
     u8 *buffer;
     int dir, ok;
     sector_t sector_cnt;
@@ -340,7 +341,7 @@ void freebs_sender(struct work_struct *work)
     fbs_debug("sending %d\n", fbs_req->req_num);
     fbs_debug("freebs: Sector Offset: %lld; Length: %u bytes\n",
            (long long int) fbs_req->sector, fbs_req->size);
-
+    
     if(!freebs_get_data_sock(fbs_sock)) 
         goto fail;
 
@@ -351,28 +352,38 @@ void freebs_sender(struct work_struct *work)
     sector_offset = 0;
     if (dir == WRITE) {
         rq_for_each_segment(bv, req, iter) {
-            buffer = page_address(bv->bv_page) + bv->bv_offset;
-            if (bv->bv_len % KERNEL_SECTOR_SIZE != 0) 
+            sector_offset += bv->bv_len / KERNEL_SECTOR_SIZE;
+            if (sector_offset > sector_cnt)
+                break;
+            //buffer = page_address(bv->bv_page) + bv->bv_offset;
+            if (unlikely(bv->bv_len % KERNEL_SECTOR_SIZE != 0))
                 printk(KERN_ERR "freebs: Should never happen: "
                        "bio size (%d) is not a multiple of KERNEL_SECTOR_SIZE (%d).\n"
                        "This may lead to data truncation.\n",
                        bv->bv_len, KERNEL_SECTOR_SIZE);
-            sectors = bv->bv_len / KERNEL_SECTOR_SIZE;
-            ok = sectors * KERNEL_SECTOR_SIZE == freebs_send(fbs_dev, fbs_sock->socket, buffer, sectors * KERNEL_SECTOR_SIZE, 0);
+            buffer = kmap(bv->bv_page);
+            ok = bv->bv_len == freebs_send(fbs_dev, fbs_sock->socket, buffer + bv->bv_offset, bv->bv_len, 0);
+            kunmap(bv->bv_page);
             if (!ok) 
                 goto fail;
-            sector_offset += sectors;
         }
-        if (sector_offset != sector_cnt) 
+        /*
+        if (sector_offset != sector_cnt) {
             printk(KERN_ERR "freebs: bio info doesn't match with the request info\n");
+            printk(KERN_ERR "req sectors: %lu, bio sectors: %lu\n", 
+                    sector_cnt, 
+                    sector_offset);
+        }
+        */
     }
     freebs_put_data_sock(fbs_sock);
-    kmem_cache_free(sender_work_cache, sender_work);
+    mempool_free(sender_work, sender_work_pool);
     return;
 
 fail:
     printk(KERN_ERR "freebs: send failed\n");
     freebs_put_data_sock(fbs_sock);
+    mempool_free(sender_work, sender_work_pool);
     mutex_lock(&fbs_dev->in_flight_l);
     fail_request(fbs_req);
     mutex_unlock(&fbs_dev->in_flight_l);
@@ -381,7 +392,7 @@ fail:
 static struct freebs_request *new_freebs_request(void)
 {
     struct freebs_request *fbs_req;
-    if (!(fbs_req = kmem_cache_alloc(fbs_req_cache, GFP_ATOMIC)))
+    if (!(fbs_req = mempool_alloc(fbs_req_pool, GFP_ATOMIC)))
         return NULL;
     atomic_set(&fbs_req->num_commits, 0);
     return fbs_req;
@@ -390,7 +401,7 @@ static struct freebs_request *new_freebs_request(void)
 static struct sender_work *new_sender_work(void)
 {
     struct sender_work *sender_work;
-    if (!(sender_work = kmem_cache_alloc(sender_work_cache, GFP_ATOMIC)))
+    if (!(sender_work = mempool_alloc(sender_work_pool, GFP_ATOMIC)))
         return NULL;
     INIT_WORK(&sender_work->work, freebs_sender);
     return sender_work;
@@ -406,7 +417,6 @@ static int fbs_transfer(struct request *req)
     struct sender_work *sender_work;
     sector_t start_sector = blk_rq_pos(req);
     sector_t sector_cnt = blk_rq_sectors(req);
-    int ret = 0;
 
     /* create and populate freebs_request struct */
     if (!(fbs_req = new_freebs_request()))
@@ -427,7 +437,7 @@ static int fbs_transfer(struct request *req)
     fbs_debug("enqueueing request num %d\n", fbs_req->req_num);
     queue_work(fbs_dev->replicas.replicas[0].data.work_queue, &sender_work->work);
 
-    return ret;
+    return 0;
 }
 
 /*
@@ -446,16 +456,18 @@ static void fbs_request(struct request_queue *q)
          * - one that moves block of data
          */
         if (!blk_fs_request(req)) {
-            printk(KERN_NOTICE "freebs: Skip non-fs request\n");
+            printk(KERN_ERR "freebs: Skip non-fs request\n");
             /* We pass 0 to indicate that we successfully completed the request */
             __blk_end_request_all(req, 0);
             //__blk_end_request(req, 0, blk_rq_bytes(req));
             continue;
         }
 #endif
+        if (req->cmd_type != REQ_TYPE_FS)
+            printk(KERN_ERR "request type %d\n", req->cmd_type);
         ret = fbs_transfer(req);
         if (ret < 0) {
-            blk_end_request_all(req, ret);
+            __blk_end_request_all(req, ret);
         }
     }
 }
@@ -481,10 +493,18 @@ static int __init fbs_init(void)
             0, SLAB_POISON | SLAB_RED_ZONE, NULL);
     if (!fbs_req_cache)
         return -ENOMEM;
+    fbs_req_pool = mempool_create(128, mempool_alloc_slab, mempool_free_slab,
+            fbs_req_cache);
+    if (!fbs_req_pool)
+        return -ENOMEM;
    
     sender_work_cache = kmem_cache_create("sender_work", sizeof(struct sender_work),
             0, SLAB_POISON | SLAB_RED_ZONE, NULL);
     if (!sender_work_cache)
+        return -ENOMEM;
+    sender_work_pool = mempool_create(128, mempool_alloc_slab, mempool_free_slab,
+            sender_work_cache);
+    if (!sender_work_pool)
         return -ENOMEM;
    
     ret = bsdevice_init(&fbs_dev);
