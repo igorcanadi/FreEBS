@@ -1,0 +1,1 @@
+BOOT_IMAGE=/boot/vmlinuz-3.5.7.6 root=UUID=8aa67d00-c561-42fc-b347-51395c71b0ed ro console=ttyS0 console=tty0
