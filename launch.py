@@ -61,7 +61,7 @@ def main():
             description='Launch the driver module and replica managers.',
             epilog='%(prog)s uses ssh to launch everything.')
     parser.add_argument('--username', nargs=1, type=str,
-            default=getpass.getuser(),
+            default=[getpass.getuser()],
             help='username to use when sshing into best-mumble (default %s)' % getpass.getuser())
     parser.add_argument('--replicas', nargs='+', type=str, required=True, 
             help='the ordered list of replica managers')
@@ -78,7 +78,7 @@ def main():
             help='port of client ssh server (default 5000)')
     args = parser.parse_args()
 
-    username = args.username
+    username = args.username[0]
     password = get_pass(username)
     paramiko.util.log_to_file('paramiko.log')
 
@@ -99,7 +99,7 @@ def main():
         else:
             replica.do(args.rmgr + ' -c /tmp/vdisk -p ' + replicas[i - 1].hostname)
 
-    client.copy(args.module, '/tmp/freebs.ko')
+    #client.copy(args.module, '/tmp/freebs.ko')
     client.do('sudo insmod /tmp/freebs.ko replica_ips=' + ','.join([i.ip for i in replicas]))
 
     try:
