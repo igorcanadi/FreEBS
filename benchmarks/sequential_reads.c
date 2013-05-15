@@ -8,8 +8,7 @@
 #include <sys/mman.h>
 #include "../lsvd/lsvd.h"
 #define SIZE 5*1024*1024*1024LL // 5GB
-#define BLOCK_SIZE 4*1024 // 4KB
-#define TOTAL_WRITES 128*1024*1024LL // total of 128MB written
+#define BLOCK_SIZE 40*1024 // 40KB
 
 //#define LSVD
 
@@ -44,12 +43,9 @@ int main(int argc, char **argv) {
     int fd;
 #endif
     long long i;
-    uint64_t start, end, start_offset;
+    uint64_t start, end;
 
-    for (i = 0; i < BLOCK_SIZE; ++i) {
-        buf[i] = rand() % (1<<8);
-    }
-
+    printf("did you delete the cache?\n");
     if (argc < 2) {
         printf("usage: %s filename\n", argv[0]);
         return 1;
@@ -62,20 +58,16 @@ int main(int argc, char **argv) {
 #endif
 
     start = rdtsc_start();
-    for (i = 0; i < TOTAL_WRITES / BLOCK_SIZE; ++i) {
-        start_offset = (long long)(rand() + (((long long)rand())<<32)) % ((SIZE - BLOCK_SIZE)/SECTOR_SIZE);
+    for (i = 0; i < SIZE / BLOCK_SIZE; ++i) {
 #ifdef LSVD
-        assert(write_lsvd(lsvd, buf, BLOCK_SIZE / SECTOR_SIZE, start_offset, v+i+1) == 0);
+        assert(read_lsvd(lsvd, buf, 
+                    BLOCK_SIZE/SECTOR_SIZE, 
+                    i * (BLOCK_SIZE/SECTOR_SIZE), v) == 0);
 #else
-        assert(pwrite(fd, buf, BLOCK_SIZE, start_offset * SECTOR_SIZE) != BLOCK_SIZE);
+        assert(read(fd, buf, BLOCK_SIZE) != BLOCK_SIZE);
 #endif
     }
 
-#ifdef LSVD
-    fsync_lsvd(lsvd);
-#else
-    fsync(fd);
-#endif
     end = rdtsc_end();
 #ifdef LSVD
     close_lsvd(lsvd);

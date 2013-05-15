@@ -46,10 +46,7 @@ int main(int argc, char **argv) {
     long long i;
     uint64_t start, end, start_offset;
 
-    for (i = 0; i < BLOCK_SIZE; ++i) {
-        buf[i] = rand() % (1<<8);
-    }
-
+    printf("did you delete the cache?\n");
     if (argc < 2) {
         printf("usage: %s filename\n", argv[0]);
         return 1;
@@ -65,17 +62,12 @@ int main(int argc, char **argv) {
     for (i = 0; i < TOTAL_WRITES / BLOCK_SIZE; ++i) {
         start_offset = (long long)(rand() + (((long long)rand())<<32)) % ((SIZE - BLOCK_SIZE)/SECTOR_SIZE);
 #ifdef LSVD
-        assert(write_lsvd(lsvd, buf, BLOCK_SIZE / SECTOR_SIZE, start_offset, v+i+1) == 0);
+        assert(read_lsvd(lsvd, buf, BLOCK_SIZE / SECTOR_SIZE, start_offset, v) == 0);
 #else
         assert(pwrite(fd, buf, BLOCK_SIZE, start_offset * SECTOR_SIZE) != BLOCK_SIZE);
 #endif
     }
 
-#ifdef LSVD
-    fsync_lsvd(lsvd);
-#else
-    fsync(fd);
-#endif
     end = rdtsc_end();
 #ifdef LSVD
     close_lsvd(lsvd);

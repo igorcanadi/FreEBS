@@ -8,8 +8,7 @@
 #include <sys/mman.h>
 #include "../lsvd/lsvd.h"
 #define SIZE 5*1024*1024*1024LL // 5GB
-#define BLOCK_SIZE 4*1024 // 4KB
-#define TOTAL_WRITES 128*1024*1024LL // total of 128MB written
+#define BLOCK_SIZE 40*1024 // 40KB
 
 //#define LSVD
 
@@ -39,12 +38,11 @@ char buf[BLOCK_SIZE];
 int main(int argc, char **argv) {
 #ifdef LSVD
     struct lsvd_disk *lsvd;
-    uint64_t v;
 #else
     int fd;
 #endif
     long long i;
-    uint64_t start, end, start_offset;
+    uint64_t start, end;
 
     for (i = 0; i < BLOCK_SIZE; ++i) {
         buf[i] = rand() % (1<<8);
@@ -55,19 +53,20 @@ int main(int argc, char **argv) {
         return 1;
     }
 #ifdef LSVD
-    lsvd = open_lsvd(argv[1]);
-    v = get_version(lsvd);
+    lsvd = create_lsvd(argv[1], SIZE / SECTOR_SIZE);
 #else
-    fd = open(argv[1], O_RDWR);
+    fd = open(argv[1], O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
 #endif
 
     start = rdtsc_start();
-    for (i = 0; i < TOTAL_WRITES / BLOCK_SIZE; ++i) {
-        start_offset = (long long)(rand() + (((long long)rand())<<32)) % ((SIZE - BLOCK_SIZE)/SECTOR_SIZE);
+    for (i = 0; i < SIZE / BLOCK_SIZE; ++i) {
 #ifdef LSVD
-        assert(write_lsvd(lsvd, buf, BLOCK_SIZE / SECTOR_SIZE, start_offset, v+i+1) == 0);
+        assert(write_lsvd(lsvd, buf, 
+                    BLOCK_SIZE/SECTOR_SIZE, 
+                    i * (BLOCK_SIZE/SECTOR_SIZE), 
+                    i+1) == 0);
 #else
-        assert(pwrite(fd, buf, BLOCK_SIZE, start_offset * SECTOR_SIZE) != BLOCK_SIZE);
+        assert(write(fd, buf, BLOCK_SIZE) != BLOCK_SIZE);
 #endif
     }
 
