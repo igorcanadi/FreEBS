@@ -1,0 +1,11 @@
+write.freebs.write      7264.2
+write.local.write       10935
+read.freebs.read        21760
+read.local.read         2047180.8
+randr.freebs.read       2341.8
+randr.local.read        347211
+randw.freebs.write      507.6
+iometer.freebs.write    815.1
+iometer.local.write     205760
+iometer.freebs.read     3230.6
+iometer.local.read      801181

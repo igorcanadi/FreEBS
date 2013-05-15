@@ -1,0 +1,40 @@
+# FIO file performing 100% sequential write
+[seq_write]
+readwrite=write
+size=256m
+blocksize=4092
+ioengine=sync
+direct=0
+fsync=128
+root@silver:/mnt# fio ~/FreEBS/data/sync_fio/write.ini
+seq_write: (g=0): rw=write, bs=4092-4092/4092-4092, ioengine=sync, iodepth=1
+2.0.8
+Starting 1 process
+seq_write: Laying out IO file(s) (1 file(s) / 256MB)
+Jobs: 1 (f=1): [W] [97.3% done] [0K/8167K /s] [0 /2043  iops] [eta 00m:01s] 
+seq_write: (groupid=0, jobs=1): err= 0: pid=1673
+  write: io=262144KB, bw=7264.2KB/s, iops=1817 , runt= 36088msec
+    clat (usec): min=0 , max=1808 , avg=15.66, stdev=44.67
+     lat (usec): min=0 , max=1812 , avg=19.77, stdev=45.10
+    clat percentiles (usec):
+     |  1.00th=[    9],  5.00th=[   10], 10.00th=[   10], 20.00th=[   10],
+     | 30.00th=[   10], 40.00th=[   11], 50.00th=[   11], 60.00th=[   11],
+     | 70.00th=[   12], 80.00th=[   15], 90.00th=[   22], 95.00th=[   25],
+     | 99.00th=[   44], 99.50th=[  115], 99.90th=[  964], 99.95th=[ 1064],
+     | 99.99th=[ 1272]
+    bw (KB/s)  : min=  645, max=11559, per=100.00%, avg=7493.30, stdev=1850.37
+    lat (usec) : 2=0.13%, 4=0.02%, 10=2.89%, 20=81.92%, 50=14.14%
+    lat (usec) : 100=0.30%, 250=0.39%, 500=0.02%, 750=0.01%, 1000=0.10%
+    lat (msec) : 2=0.08%
+  cpu          : usr=4.59%, sys=1.83%, ctx=3121, majf=0, minf=25
+  IO depths    : 1=100.0%, 2=0.0%, 4=0.0%, 8=0.0%, 16=0.0%, 32=0.0%, >=64=0.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     issued    : total=r=0/w=65600/d=0, short=r=0/w=0/d=0
+
+Run status group 0 (all jobs):
+  WRITE: io=262143KB, aggrb=7263KB/s, minb=7263KB/s, maxb=7263KB/s, mint=36088msec, maxt=36088msec
+
+Disk stats (read/write):
+  freebs: ios=0/3569, merge=0/518, ticks=0/80760, in_queue=80788, util=94.04%
+

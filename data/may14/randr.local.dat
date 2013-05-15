@@ -1,0 +1,29 @@
+rand_read: (g=0): rw=randread, bs=512-512/512-512/512-512, ioengine=sync, iodepth=1
+fio-2.0.15
+Starting 1 process
+rand_read: Laying out IO file(s) (1 file(s) / 256MB)
+
+rand_read: (groupid=0, jobs=1): err= 0: pid=22154: Tue May 14 23:23:59 2013
+  read : io=262144KB, bw=347211KB/s, iops=694421 , runt=   755msec
+    clat (usec): min=0 , max=30 , avg= 0.74, stdev= 0.51
+     lat (usec): min=0 , max=30 , avg= 0.81, stdev= 0.49
+    clat percentiles (usec):
+     |  1.00th=[    0],  5.00th=[    0], 10.00th=[    0], 20.00th=[    0],
+     | 30.00th=[    1], 40.00th=[    1], 50.00th=[    1], 60.00th=[    1],
+     | 70.00th=[    1], 80.00th=[    1], 90.00th=[    1], 95.00th=[    1],
+     | 99.00th=[    2], 99.50th=[    2], 99.90th=[    5], 99.95th=[    6],
+     | 99.99th=[    7]
+    bw (KB/s)  : min=337770, max=337770, per=97.28%, avg=337770.00, stdev= 0.00
+    lat (usec) : 2=98.39%, 4=1.49%, 10=0.12%, 20=0.01%, 50=0.01%
+  cpu          : usr=53.05%, sys=46.82%, ctx=1, majf=0, minf=30
+  IO depths    : 1=100.0%, 2=0.0%, 4=0.0%, 8=0.0%, 16=0.0%, 32=0.0%, >=64=0.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     issued    : total=r=524288/w=0/d=0, short=r=0/w=0/d=0
+
+Run status group 0 (all jobs):
+   READ: io=262144KB, aggrb=347210KB/s, minb=347210KB/s, maxb=347210KB/s, mint=755msec, maxt=755msec
+
+Disk stats (read/write):
+  sda: ios=0/2, merge=0/4, ticks=0/26, in_queue=26, util=4.05%
+
