@@ -7,11 +7,11 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include "../lsvd/lsvd.h"
-#define SIZE 5*1024*1024*1024LL // 5GB
-#define BLOCK_SIZE 4*1024 // 4KB
-#define TOTAL_WRITES 128*1024*1024LL // total of 128MB written
+#define SIZE (5*1024*1024*1024LL) // 5GB
+#define BLOCK_SIZE (4*1024) // 4KB
+#define TOTAL_WRITES (128*1024*1024LL) // total of 128MB written
 
-//#define LSVD
+#define LSVD
 
 inline uint64_t rdtsc_start(void) {
     unsigned cycles_high, cycles_low;
@@ -67,7 +67,7 @@ int main(int argc, char **argv) {
 #ifdef LSVD
         assert(write_lsvd(lsvd, buf, BLOCK_SIZE / SECTOR_SIZE, start_offset, v+i+1) == 0);
 #else
-        assert(pwrite(fd, buf, BLOCK_SIZE, start_offset * SECTOR_SIZE) != BLOCK_SIZE);
+        assert(pwrite(fd, buf, BLOCK_SIZE, start_offset * SECTOR_SIZE) == BLOCK_SIZE);
 #endif
     }
 

@@ -7,11 +7,11 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include "../lsvd/lsvd.h"
-#define SIZE 5*1024*1024*1024LL // 5GB
-#define BLOCK_SIZE 4*1024 // 4KB
-#define TOTAL_WRITES 128*1024*1024LL // total of 128MB written
+#define SIZE (5*1024*1024*1024LL) // 5GB
+#define BLOCK_SIZE (4*1024) // 4KB
+#define TOTAL_READS (512*1024*1024LL) // total of 512MB read
 
-//#define LSVD
+#define LSVD
 
 inline uint64_t rdtsc_start(void) {
     unsigned cycles_high, cycles_low;
@@ -57,14 +57,15 @@ int main(int argc, char **argv) {
 #else
     fd = open(argv[1], O_RDWR);
 #endif
+    system("sync; echo 1 >| /proc/sys/vm/drop_caches");
 
     start = rdtsc_start();
-    for (i = 0; i < TOTAL_WRITES / BLOCK_SIZE; ++i) {
+    for (i = 0; i < TOTAL_READS / BLOCK_SIZE; ++i) {
         start_offset = (long long)(rand() + (((long long)rand())<<32)) % ((SIZE - BLOCK_SIZE)/SECTOR_SIZE);
 #ifdef LSVD
         assert(read_lsvd(lsvd, buf, BLOCK_SIZE / SECTOR_SIZE, start_offset, v) == 0);
 #else
-        assert(pwrite(fd, buf, BLOCK_SIZE, start_offset * SECTOR_SIZE) != BLOCK_SIZE);
+        assert(pwrite(fd, buf, BLOCK_SIZE, start_offset * SECTOR_SIZE) == BLOCK_SIZE);
 #endif
     }
 

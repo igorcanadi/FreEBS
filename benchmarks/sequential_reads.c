@@ -7,10 +7,10 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include "../lsvd/lsvd.h"
-#define SIZE 5*1024*1024*1024LL // 5GB
-#define BLOCK_SIZE 40*1024 // 40KB
+#define SIZE (5*1024*1024*1024LL) // 5GB
+#define BLOCK_SIZE (40*1024) // 40KB
 
-//#define LSVD
+#define LSVD
 
 inline uint64_t rdtsc_start(void) {
     unsigned cycles_high, cycles_low;
@@ -45,7 +45,6 @@ int main(int argc, char **argv) {
     long long i;
     uint64_t start, end;
 
-    printf("did you delete the cache?\n");
     if (argc < 2) {
         printf("usage: %s filename\n", argv[0]);
         return 1;
@@ -57,6 +56,8 @@ int main(int argc, char **argv) {
     fd = open(argv[1], O_RDWR);
 #endif
 
+    system("sync; echo 1 >| /proc/sys/vm/drop_caches");
+
     start = rdtsc_start();
     for (i = 0; i < SIZE / BLOCK_SIZE; ++i) {
 #ifdef LSVD
@@ -64,7 +65,7 @@ int main(int argc, char **argv) {
                     BLOCK_SIZE/SECTOR_SIZE, 
                     i * (BLOCK_SIZE/SECTOR_SIZE), v) == 0);
 #else
-        assert(read(fd, buf, BLOCK_SIZE) != BLOCK_SIZE);
+        assert(read(fd, buf, BLOCK_SIZE) == BLOCK_SIZE);
 #endif
     }
 

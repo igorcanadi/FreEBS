@@ -7,10 +7,10 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include "../lsvd/lsvd.h"
-#define SIZE 5*1024*1024*1024LL // 5GB
-#define BLOCK_SIZE 40*1024 // 40KB
+#define SIZE (5*1024*1024*1024LL) // 5GB
+#define BLOCK_SIZE (40*1024LL) // 40KB
 
-//#define LSVD
+#define LSVD
 
 inline uint64_t rdtsc_start(void) {
     unsigned cycles_high, cycles_low;
@@ -66,7 +66,7 @@ int main(int argc, char **argv) {
                     i * (BLOCK_SIZE/SECTOR_SIZE), 
                     i+1) == 0);
 #else
-        assert(write(fd, buf, BLOCK_SIZE) != BLOCK_SIZE);
+        assert(write(fd, buf, BLOCK_SIZE) == BLOCK_SIZE);
 #endif
     }
 
