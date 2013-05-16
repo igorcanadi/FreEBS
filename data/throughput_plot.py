@@ -23,7 +23,8 @@ xlabs = [("iometer.freebs.read", "IOmeter read"),
         ("read.freebs.read", "Sequential reads"), 
         ("write.freebs.write", "Sequential writes"),
         ("randr.freebs.read", "Random reads"),
-        ("randw.freebs.write", "Random writes")]
+        ("randw.freebs.write", "Random writes"),
+        ("kernel.freebs.result", "Linux kernel build")]
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
