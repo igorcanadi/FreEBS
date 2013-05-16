@@ -27,16 +27,14 @@ Block Device\textsuperscript{\textregistered} (DRBD)\cite{drbd}, an open source
 virtual RAID-1 block device. We discuss DRBD\textsuperscript{\textregistered}
 in more detail in Section~\ref{sec:related}.
 
-Given what we know of EBS and DRBD, FreEBS seeks to provide the below:
+Given what we know of EBS and DRBD, FreEBS seeks to provide the following:
 
 \begin{description}
-    \item[Availability]{The system should continue to operate with a certain
-            number of replica failures.}
-    \item[Durability]{In the case of a failure, the most recent data should
-            still exist on the volume.}
-    \item[Reliability]{The system should operate as expected and behave
-            deterministically.}
-    \item[Snapshots]{Our backing file should support snapshots and incremental backups}
+    \item[Availability and Reliability]{The system should continue to operate even when a certain
+            number of replicas fail;}
+    \item[Durability]{All written data should exist on the volume even when a certain number of replicas fail;}
+    \item[Consistency]{The system should serve correct versions of the data at all times; fail if not possible to satisfy consistency;}
+    \item[Snapshots]{The system should support snapshots and incremental backups.}
 \end{description}
 
 We address these goals by using replica servers that coordinate using a
@@ -50,4 +48,4 @@ we discuss related work, and in Section~\ref{sec:design} we explain the
 overall design of the system. We go into more detail about our system in 
 Section~\ref{sec:implementation}. Finally, we evaluate our design and draw
 appropriate conclusions in Section~\ref{sec:evaluation} and 
-Section~\ref{sec:conc}, respectively. Section~\ref{sec:future_work} descibes future work.
+Section~\ref{sec:conc}, respectively. Section~\ref{sec:future_work} describes future work.

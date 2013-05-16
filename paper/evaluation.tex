@@ -23,7 +23,7 @@ We evaluated LSVD using five benchmarks, which we ran in specific order:
 
 All read and write operations were performed sequentially, without concurrency. Before read benchmarks, we cleared the file cache. Benchmarks were ran with LSVD checkpointing turned off.
 
-Table \ref{tab:lsvd} shows benchmark results. As expected, we see very similar performances for sequential write, sequential read and random read benchmarks. Since LSVD turns all random writes into sequential writes, random writes executed on LSVD show throughput 52x larger than sequential writes on a normal file. However, LSVD pays the price of fast random writes on subsequent sequential reads of the data. Benchmark sequential read 2 read the whole file again, but now with 128MB of new writes at random places in the file. Benchmark on the file showed the same throughput as first time. However, random writes decreased LSVD sequential read throughput by 2.3x.
+Table \ref{tab:lsvd} shows benchmark results. As expected, we see very similar performances for sequential write, sequential read and random read benchmarks. Since LSVD turns all random writes into sequential writes, random writes executed on LSVD show throughput 52x larger than sequential writes on a normal file. However, LSVD pays the price of fast random writes on subsequent sequential reads of the data. Benchmark sequential read 2 read the whole file again, but now with 128MB of new writes at random places in the file. Benchmark executed on a normal file showed the same throughput as the first time. However, random writes decreased LSVD sequential read throughput by 2.3x.
 
 The benchmarks show that LSVD trades off fast random writes to slower sequential reads in some cases. However, with growing cache sizes, most of the reads are satisfied from cache and we argue this is a good trade-off to make.
 
@@ -70,11 +70,11 @@ Finally, we measured FreEBS's performance as compared to local disk performance 
 \begin{figure}[t!]
   \centering
    \includegraphics[width=3.5in]{figures/benchmarks.pdf}
-   \caption{File system benchmarks}
+   \caption{File system benchmarks.}
    \label{fig:benchmarks}
 \end{figure}
 
-The first six benchmarks were run using Flexible IO Tester (fio). The sequential write, sequential read, random write, and random read were run with the synchronous IO engine, which means that operations were conducted with blocking read() and write() calls. They all used a file size of 256 MB. The sequential benchmarks used block sizes of 4 KB for each operation while the random benchmarks used block sizes of 512 B. The write benchmarks were also configured to issue an fsync() call every 128 operations.
+The first six benchmarks were run using Flexible IO Tester (fio). The sequential write, sequential read, random write, and random read were run with the synchronous IO engine, which means that operations were conducted with blocking \texttt{read} and \texttt{write} calls. They all used a file size of 256 MB. The sequential benchmarks used block sizes of 4 KB for each operation while the random benchmarks used block sizes of 512 B. The write benchmarks were also configured to issue an \texttt{fsync} call every 128 operations.
 
 The IOMeter benchmark was based on an example configuration included with the fio distribution designed to emulate Intel's IOMeter file server access pattern. It uses libaio (an asynchronous IO library for Linux), an 80\% read/20\% write mix, allows up to 64 requests to be in flight at a given time, and issues requests using a variety of block sizes. We configured it to use a 400 MB file.
 
@@ -83,3 +83,5 @@ Initially, direct I/O was enabled in our benchmarks, but we found that it inflat
 A final benchmark we ran was to time how long it took to compile the Linux kernel on the volume. For this benchmark, we do not present throughput.
 
 FreEBS excels at random writes due to the log-structured nature of its backing store. It also seems to have done better than local for random reads -- this may be due to the relevant parts of the replica file remaining in cache after setup. Sequential read and write performance is quite bad. This is likely due to the synchronous nature of the tests; every request involves at least one round trip and multiple requests must be serviced serially. The Linux kernel build took twice as long on FreEBS, but this may also be affected by the fact that it was running inside a virtual machine. Further testing could mitigate these problems, but lack of time prevented us from accomplishing this.
+
+After executing random write benchmark, we also evaluated usefulness of LSVD \texttt{cleanup} function. The size of LSVD backing file on primary replica after the benchmark was 2.4GB. Execution of \texttt{cleanup} function reduced the size to 290MB.

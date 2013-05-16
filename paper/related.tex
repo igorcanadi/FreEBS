@@ -1,12 +1,11 @@
-As mentioned previously, we drew many of our ideas about EBS on past 
+We drew many of our ideas about EBS on past 
 work, especially DRBD\textsuperscript{\textregistered}. Here we 
-discuss related network and cloud storage systems and how our work 
-compares to them. 
+discuss related network and cloud storage systems and compare our work to them.
 
 \subsection{DRBD}
 \label{sec:drbd}
 DRBD\textsuperscript{\textregistered} is a virtual RAID-1 block storage 
-device consisting of two shared-nothing node that form a highly available
+device consisting of two shared-nothing nodes that form a highly available
 \emph{cluster}. The DRBD\textsuperscript{\textregistered} interface is 
 implemented as a kernel module that can be mounted like a normal block 
 device. Since it is an open-source project, many aspects of its 
@@ -28,7 +27,7 @@ the write has been committed to both nodes in the cluster. The latter means
 that each node reports a successful write as soon as the data is written to 
 its local disk. 
 
-FreEBS uses a similar technique to the asynchronous method of replication;
+FreEBS uses a technique similar to the asynchronous mode of replication;
 we utilize a primary replica that services reads and propagates write 
 requests. However, FreEBS waits for a majority of replicas to respond with a
 successful write completion. Our system also offers much more flexibility in 
@@ -47,7 +46,7 @@ performed periodically at some constant time interval. Synchronization
 can be made more efficient by using checksums to identify blocks that have 
 changed since the last synchronization. This eliminates the need to 
 synchronize blocks that were overwritten with identical contents. Changes
-are tracked using the activity log (AL) which records \emph{hot extents}, 
+are tracked using the activity log (AL) that records \emph{hot extents}, 
 the blocks that have been modified between synchronization points. The 
 activity log uses a quick-sync bitmap to keep track of modified blocks.
 

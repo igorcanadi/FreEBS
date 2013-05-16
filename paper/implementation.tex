@@ -1,4 +1,6 @@
-In the following sections we present implementation details of FreEBS.
+Based on our design and ideas, we implemented FreEBS prototype. We have successfully implemented the core of the system. We have not, however, implemented snapshotting or recovery from failures.
+
+In the following sections we present implementation details of our prototype.
 
 \subsection{Device Operations}
 \label{sec:readwrite}
@@ -17,8 +19,8 @@ version number.
 Figure~\ref{fig:write} shows the message flow on a write request. Notice
 that, in a similar to fashion to Google File System~\cite{ghemawat2003google}, 
 we utilize chained replication, where the closer the replica is to the 
-head of the chain the more more up-to-date it is. The choice for this chained
-scheme is to reduce the network load to the driver. Thus, when 
+head of the chain the more more up-to-date it is. The goal of this chained
+scheme is to fully utilize each machine's network bandwidth. Thus, when 
 the driver sends a write request, \texttt{sdaemon} issues the write to its 
 local LSVD copy and then propagates the modified blocks to the next replica 
 in the chain. Propagation is done in a streaming fashion --- as soon as a 
@@ -30,7 +32,7 @@ If a majority of replicas responds to the driver with a SUCCESS message,
 then the driver reports a success back to the kernel. Otherwise, it will 
 report a failure. 
 
-In contrast, a read only needs one replica to respond for a success. In 
+In contrast, a read only needs one replica to respond with a success. In 
 Figure~\ref{fig:read} we observe that when the driver issues a read request 
 it issues the request to the replica with the most recent version. Typically 
 this is the primary replica. If the replica responds with a SUCCESS, then 
@@ -63,8 +65,7 @@ Replication is managed by \texttt{sdaemon} using write propagation and
 synchronization. Propagation was discussed in Section~\ref{sec:readwrite}. 
 Synchronization is performed whenever a replica joins the chain and also 
 periodically to keep replicas near the tail from becoming increasingly out 
-of date. Figure~\ref{fig:sync} shows how replication is performed. As we see,
-replica C sends a SYNC request with the version number of its local LSVD 
+of date. Figure~\ref{fig:sync} shows how replication is performed. Replica C sends a SYNC request with the version number of its local LSVD 
 copy to the previous replica in the chain, replica B. Replica B then responds
 with all the writes from C.version to B.version. Replica C then applies all 
 the writes to its LSVD. After the synchronization operation, Replica C's 
@@ -72,7 +73,7 @@ LSVD version is equal to B.version. Similarly, replica B initiates the
 synchronization procedure with replica A.
 
 To handle failure, a replica controller is used to inform the driver and 
-neighboring replicas that a failure has occured. This controller keeps track 
+neighboring replicas that a failure has occurred. This controller keeps track 
 of the liveliness of each replica by recording the elapsed time since the 
 last heartbeat message, which is sent every $T$ seconds by each replica. 
 After $4T$ seconds the replica is marked as failed. Upon failure, the 
@@ -84,11 +85,12 @@ request, and then normal operation resumes. Meanwhile, the controller spins
 off a new \texttt{sdaemon} process that is appended to the end of the chain. 
 The driver appropriately modifies its replica version list by deleting the
 faulted server and adding the new server and then connects to the new server
-to retrieve its current version.
+to retrieve its current version. 
+
 In order to minimize the amount of synchronization that needs to be 
 performed on startup, we use a copy of the LSVD of the tail replica on 
 initialization. In Section~\ref{sec:lsvd} we discuss how we handle LSVD
-failure. Note that the replica controller is currently not 
+failure. Note that the replica controller and failure handling are currently not 
 implemented in our prototype. 
 
 \begin{figure}[t]
@@ -102,14 +104,11 @@ implemented in our prototype.
 \subsection{Log Structured Virtual Disk}
 \label{sec:lsvd}
 
-When designing our file format to back virtual disk, we had few goals in mind. First, the file should be dynamically growing. If a disk is defined with $D$ bytes free space and the user only uses $C$ bytes for her content, the backing file size should use on the order of $O(C)$ bytes. Second, we must support versioning. We define $version$ as a monotonically increasing update sequence number. Each update increments the disk version by one. An update is a request originating from the driver that consists of one or more sequential sectors on the disk. Moreover, versions are required to enable synchronization; \texttt{sdaemon} must be aware of the current local disk version and must be able to send arbitrary version updates to other replicas for synchronization. The third goals for LSVD was consistency. If the local data has version $V$, it should consist of all updates with versions less than or equal to $V$ and no updates with versions greater than $V$. Finally, the fourth goal was the ability to easily support snapshots and incremental backups.
+When designing our file format to back virtual disk, we had few goals in mind. First, the file should be dynamically growing. If a disk is defined with $D$ bytes free space and the user only uses $C$ bytes for her content, the backing file size should use on the order of $O(C)$ bytes. Second, we must support versioning. We define \emph{version} as a monotonically increasing update sequence number. Each update increments the whole disk version by one. An \emph{update} is a request originating from the driver that consists of one or more sequential sectors on the disk. Moreover, versions are required to enable synchronization; \texttt{sdaemon} must be aware of the current local disk version and must be able to send arbitrary version updates to other replicas for synchronization. The third goals for LSVD was consistency. If the local data has version $V$, it should consist of all updates with versions less than or equal to $V$ and no updates with versions greater than $V$. Finally, the fourth goal was the ability to easily support snapshots and incremental backups.
 
-To address all of these requirements, we developed Log Structured Virtual Disk (LSVD). When LSVD receives updates, it writes them sequentially on the backing file and increments the LSVD version by one. This append-on-write behavior, along with the LSVD cleanup procedure, satisfies our dynamically growing file goal. We also support versioning and consistency by recording all modifications and their corresponding versions. When designing the LSVD, we took special care to ensure that the backing file remains consistent and recoverable up to some recent version, even if the replica server fails at any arbitrary point in time. Finally, the design of LSVD enables snapshotting and incremental backups; however, this is not currently implemented. We discuss possible implementations of snapshotting later.
+To address all of these requirements, we developed Log Structured Virtual Disk (LSVD). When LSVD receives updates, it writes them sequentially on the backing file and increments the LSVD version by one. This append-on-write behavior, along with the LSVD cleanup procedure, satisfies our dynamically growing file goal. We also support versioning and consistency by recording all modifications and their corresponding versions. When designing the LSVD, we took special care to ensure that the backing file remains consistent and recoverable up to some recent version, even if the replica server fails at any arbitrary point in time. In other words, if the replica fails, it will always be able to recover to some version $V$ and will include all updates up to $V$. Additionally, version $V$ is not too far behind, which makes synchronization faster. We call this property \emph{on-disk data consistency}. Finally, the design of LSVD enables snapshotting and incremental backups; however, this is not currently implemented. We discuss possible implementations of snapshotting later.
 
-Figure \ref{fig:lsvd} shows the layout of an LSVD file. The first few bytes define the superblock, which contains disk size, unique identifier, magic number and pointer to the current checkpoint. Following this there are two checkpointing placeholders. After these we store the updates. Each update consists of a data block and a commit block. The data block is comprised of one or two sectors of write data. The commit block verifies the integrity of the data block by storing its checksum. To guarantee consistency, we require atomic version writes; thus if a commit block is not written to disk or its checksum is invalid, we define the update as not committed and that update is skipped. We use checkpointing to guarantee on-disk data consistency, even if the disk or the kernel reorder our writes (for example writing commit blocks before data blocks).
-
-LSVD handles writes by appending the modified blocks to the end of the file with additional metadata. This means that sequential blocks may not exist in a contiguous layout on the physical disk. Therefore, on a read we use an in-memory \emph{sector to offset map} that maps LSVD disk sectors to their corresponding backing file offset. We update this mapping on every write.
-
+Figure \ref{fig:lsvd} shows the layout of an LSVD file. The first few bytes define the superblock, which contains disk size, unique identifier, magic number and pointer to the current checkpoint. Following this there are two checkpointing placeholders. After these we store the updates. Each update consists of a data block and a commit block. The data block is comprised of one or more sectors of write data. The commit block verifies the integrity of the data block by storing its checksum. To guarantee consistency, we require atomic version writes; thus if a commit block is not written to disk or its checksum is invalid, we define the update as not committed and that update is skipped. We use checksums to guarantee on-disk data consistency, even if the disk or the kernel reorder our writes (for example writing commit blocks before data blocks).
 
 \begin{figure}[h]
     \includegraphics[width=0.45\textwidth]{./figures/lsvd.pdf}
@@ -117,11 +116,13 @@ LSVD handles writes by appending the modified blocks to the end of the file with
     \label{fig:lsvd}
 \end{figure}
 
-When opening a disk after recovery, LSVD could rebuild the sector to offset map by reading all the updates from the beginning of time; however, this method is slow. To keep recovery time from growing linearly with time, we perform \emph{checkpointing}. Every 60 seconds, we write the sector to offset map to disk into one of the checkpointing placeholders at the beginning of the file. In order to negate the impact of checkpoints on normal write or read operations, they are performed slowly. After a checkpoint is fully written to one of the placeholders, LSVD updates the superblock checkpoint pointer and calls \texttt{fsync} to flush the write to the physical disk. During recovery, the checkpoint data (sector to offset map) is loaded into memory. Checkpoint also stores the pointer \texttt{last\_offset} to the offset in the file when we started writing the checkpoint. Any updates after that offset might have not been updated in sector to offset map. Note, however, that some of they might be in the checkpoint, since we perform checkpointing slowly and allow concurrent updates. To bring sector to offset map up to date, we need to load in all the updates after \texttt{last\_offset} and use them to update the map, the same way like in normal operation. By checkpointing periodically recovery time is linear to the rate of updates rather than the total number of updates over time.
+LSVD handles writes by appending the modified blocks to the end of the file with additional metadata. Therefore, on a read we must be able to locate requested sectors on a disk. We use an in-memory \emph{sector to offset map} that maps LSVD disk sectors to their corresponding backing file offset. We update this mapping on every write.
+
+When opening a disk after recovery, LSVD could rebuild the sector to offset map by reading all the updates from the beginning of time; however, this method is slow. To keep recovery time from growing linearly with time, we perform \emph{checkpointing}. Every 60 seconds, we write the sector to offset map to disk into one of the checkpointing placeholders at the beginning of the file. In order to negate the impact of checkpoints on normal write or read operations, they are performed slowly. After a checkpoint is fully written to one of the placeholders, LSVD updates the superblock checkpoint pointer and calls \texttt{fsync} to flush the write to the physical disk. During recovery, the checkpoint data (sector to offset map) is loaded into memory. Checkpoint also stores the pointer \texttt{last\_offset} to the offset in the file when we started writing the checkpoint. Any updates after that offset might have not been updated in sector to offset map. Note, however, that some of they might be in the checkpoint, since we perform checkpointing slowly and allow concurrent updates. To bring sector to offset map up to date, we need to load in all the updates after \texttt{last\_offset} and use them to update the map, the same way like in normal operation. By checkpointing periodically recovery time is upper-bounded by the rate of updates rather than growing with total number of updates over time.
 
 The problem with storing data in an append-on-write, log-structured format is data redundancy, or bloat. Even if a sector has been overwritten by newer data, LSVD still keeps its old versions around. This is both advantageous and disadvantageous. For instance, we can use it to enable users to recover the disk state from an arbitrary point in time. However, the file may grow to an unmanageable size. We therefore implement garbage collection with a goal of reclaiming state from sectors that have been overwritten with newer data. To do this, we developed a separate \texttt{cleanup} function that reads in an LSVD file and essentially flattens all updates into the latest version. The \texttt{cleanup} function does this by reading the file and reconstructing the sector to offset map. It then starts at the beginning of the file and considers all updates on the disk sequentially. If any of the sectors contained in the update is up-to-date, the update is appended to the new file. The process skips the update if all sectors were overwritten by newer updates. Since the LSVD file is guaranteed to be consistent at any point in time, we can execute cleanup during live operation. Once the new file is constructed, it can be brought up-to-date with the replica synchronization protocol. After it has been synchronized, we can transparently change the backing file used by LSVD to the new, compacted version and delete the old file. We have not implemented the hot swap, however. Note that there are two drawbacks of this garbage collection approach. First, it must read and process the entire file, which can be a slow operation. Second, it requires enough free space on the current drive to store the new file. However, if we store $O(n)$ files on the single physical disk and run cleanup on them in round robin fashion, we need free space for only $O(1)$ disks.
 
-We have not implemented snapshotting or incremental backups, but present here one possible design. On a snapshot, a disk contents are supposed to be saved and new updates are supposed to be written to a newly created delta file. One important property is that delta file's size does not depend on original disk size, but only on size of new updates. To support snapshotting, LSVD files should have additional pointer to the base disk in their superblock. On a snapshot, new file would be created with a pointer to the current file. LSVD could then manage both files, keeping additional information in the checkpoint on which file contains the sector. New updates would be appended to new files, updating sector to offset map. If the base file contains a pointer to another base file, the approach could extend to multiple files, easily enabling incremental backups.
+We have not implemented snapshotting or incremental backups, but present here one possible design. On a snapshot, a disk contents are supposed to be saved and new updates are supposed to be written to a newly created delta file. One important property is that delta file's size does not depend on original disk size, but only on the size of new updates. To support snapshotting, LSVD files should have additional pointer to the base disk in their superblock. On a snapshot, new file would be created with a pointer to the current file. LSVD could then manage both files, keeping additional information in the checkpoint on which file contains the sector. New updates would be appended to the new file, updating sector to offset map. If the base file contains a pointer to another base file, the approach could extend to multiple files, easily enabling incremental backups.
 
 We implemented LSVD as a C library. Figure \ref{fig:lsvdinterface} shows the interface exposed by the library. Most of the functions are straight forward. We use functions \texttt{get\_writes\_lsvd} and \texttt{put\_writes\_lsvd} to support replica synchronization. \texttt{get\_writes\_lsvd} returns raw update data for all updates since \texttt{first\_version}. We do not keep a version to offset map, so we must scan all the updates backwards until we encounter a version less than or equal to \texttt{first\_version}. Once we find the requested starting version, we copy the raw update data into the buffer. The raw data is then transferred to the lagging replica and appended to its LSVD file using function \texttt{put\_writes\_lsvd}, bringing it up-to-date.
 
