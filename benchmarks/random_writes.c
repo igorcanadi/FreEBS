@@ -11,7 +11,7 @@
 #define BLOCK_SIZE (4*1024) // 4KB
 #define TOTAL_WRITES (128*1024*1024LL) // total of 128MB written
 
-#define LSVD
+//#define LSVD
 
 inline uint64_t rdtsc_start(void) {
     unsigned cycles_high, cycles_low;

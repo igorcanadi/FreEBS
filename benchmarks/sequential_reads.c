@@ -10,7 +10,7 @@
 #define SIZE (5*1024*1024*1024LL) // 5GB
 #define BLOCK_SIZE (40*1024) // 40KB
 
-#define LSVD
+//#define LSVD
 
 inline uint64_t rdtsc_start(void) {
     unsigned cycles_high, cycles_low;
