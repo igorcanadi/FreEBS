@@ -1,0 +1,7 @@
+Building kernel on mumble-39:
+506.39user 63.54system 9:31.29elapsed 99%CPU (0avgtext+0avgdata 518848maxresident)k
+10896inputs+568184outputs (36major+24943333minor)pagefaults 0swaps
+
+Building kernel on FreEBS:
+758.23user 409.56system 18:26.36elapsed 105%CPU (0avgtext+0avgdata 109480maxresident)k
+195600inputs+567832outputs (195major+22862912minor)pagefaults 0swaps
