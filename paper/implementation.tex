@@ -123,8 +123,7 @@ We have not implemented snapshotting or incremental backups, but present here on
 
 We implemented LSVD as a C library. Figure \ref{fig:lsvdinterface} shows the interface exposed by the library. Most of the functions are straight forward. We use functions \texttt{get\_writes\_lsvd} and \texttt{put\_writes\_lsvd} to support replica synchronization. \texttt{get\_writes\_lsvd} returns raw update data for all updates since \texttt{first\_version}. We do not keep a version to offset map, so we must scan all the updates backwards until we encounter a version less than or equal to \texttt{first\_version}. Once we find the requested starting version, we copy the raw update data into the buffer. The raw data is then transferred to the lagging replica and appended to its LSVD file using function \texttt{put\_writes\_lsvd}, bringing it up-to-date.
 
-\lstset{language=C}
-\lstset{basicstyle=\small}
+\lstset{basicstyle=\ttfamily\small, columns=fullflexible, language=C}
 \lstset{frame=tlrb}
 \begin{figure}
 \begin{lstlisting}
