@@ -10,3 +10,5 @@ iometer.freebs.write    48321.61
 iometer.local.write     92085.50
 iometer.freebs.read     48501.78
 iometer.local.read      93373.24
+kernel.freebs.result    17.5
+kernel.local.result     9.5
