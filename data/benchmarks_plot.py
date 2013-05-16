@@ -27,9 +27,9 @@ xlabs = [("iometer.freebs.read", "IOmeter read"),
 fig = plt.figure()
 ax = fig.add_subplot(111)
 plt.subplots_adjust(bottom=0.3)
-rects = ax.bar(ind, map(lambda x: relative_data[x[0]], xlabs), width, color='b')
+rects = ax.bar(ind + 0.25, map(lambda x: relative_data[x[0]], xlabs), width, color='b')
 
-ax.set_xticks(ind + width/2)
+ax.set_xticks(ind + 0.25 + width/2)
 ax.set_xticklabels(map(lambda x: x[1], xlabs), rotation=90)
 
 #plt.show()
