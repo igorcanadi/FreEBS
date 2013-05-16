@@ -1,14 +1,14 @@
 \subsection{Methodology}
-We ran our local experiments on a Dell Precision T7500n Dual Processor desktop 
-computer running 64-bit RHEL6 built on the 2.6.32 kernel for CentOS6. The 
+We ran our local experiments on one of two machines. The first was a Dell Precision T7500n Dual Processor desktop 
+computer running 64-bit RHEL6 built on the 2.6.32 kernel for CentOS6. This 
 machine housed a Dual Quad Core Intel\textsuperscript{\textregistered} 
 Xeon\textsuperscript{\textregistered} E5620 2.40GHz Processor, 24GB of RAM, 
-two 600GB 15K RPM hard drives and one 2TB hard drive.
+two 600GB 15K RPM hard drives and one 2TB hard drive. The second was a desktop machine in the mumble lab with an Intel Core 2 Quad Q9400 2.66GHz CPU and 8 GB of RAM running Red Hat Enterprise Linux Server 6.4. In both cases, the storage used was a local ext4 partition. In the following section, we will indicate which machine was used for each experiment.
 
-In remote case, we ran \XXX{Jim, care to fill this up?}
+For testing FreEBS, we used a VirtualBox virtual machine for the client and ran our sdaemons on mumble machines identical to the mumble machine described above. The machines in the mumble lab are connected via a 1 gbps switch.
 
 \subsection{LSVD microbenchmarks}
-First, we wanted to evaluate our LSVD implementation. Since LSVD exports interface very similar to a file, we can easily compare LSVD throughput to regular file throughput. These benchmarks were all run locally.
+First, we wanted to evaluate our LSVD implementation. Since LSVD exports interface very similar to a file, we can easily compare LSVD throughput to regular file throughput. These benchmarks were all run locally on the Dell.
 
 We evaluated LSVD using five benchmarks, which we ran in specific order:
 \begin{enumerate}
@@ -46,7 +46,7 @@ Sequential read 2 & 195,421 & 85,183 \\
 \end{table}
 
 \subsection{Checkpointing evaluation}
-One of the important aspects of LSVD is checkpointing. We use it to keep recovery time from growing indefinitely. We designed an experiment to prove that our recovery time is bounded.
+One of the important aspects of LSVD is checkpointing. We use it to keep recovery time from growing indefinitely. We designed an experiment to prove that our recovery time is bounded. This experiment was run locally on the Dell.
 
 The experiment started with a write operation, which kept sending new updates to LSVD file until we killed it with \texttt{SIGKILL}. We then opened LSVD file and measured how long does a recovery take.
 
@@ -60,10 +60,21 @@ Figure \ref{fig:checkpointing} shows the results of the experiment. The horizont
 \end{figure}
 
 \subsection{File System Benchmarks}
+Finally, we measured FreEBS's performance as compared to local disk performance using both microbenchmarks and macrobenchmarks. Results for latency and throughput are presented in Figure \ref{fig:benchmarks}.
 
 \begin{figure}
   \centering
    \includegraphics[width=3.5in]{figures/benchmarks.pdf}
-   \caption{File system benchmarks \XXX{TODO}}
-   \label{fig:checkpointing}
+   \caption{File system benchmarks}
+   \label{fig:benchmarks}
 \end{figure}
+
+The first six benchmarks were run using Flexible IO Tester (fio). The sequential write, sequential read, random write, and random read were run with the synchronous IO engine, which means that operations were conducted with blocking read() and write() calls. They all used a file size of 256 MB. The sequential benchmarks used block sizes of 4 KB for each operation while the random benchmarks used block sizes of 512 B. The write benchmarks were also configured to issue an fsync() call every 128 operations.
+
+The IOMeter benchmark was based on an example configuration included with the fio distribution designed to emulate Intel's IOMeter file server access pattern. It uses libaio (an asynchronous IO library for Linux), an 80\% read/20\% write mix, allows up to 64 requests to be in flight at a given time, and issues requests using a variety of block sizes. We configured it to use a 400 MB file.
+
+Initially, direct I/O was enabled in our benchmarks, but we found that it inflated FreEBS's performance. This is because the replica managers use their local file caches. Since the network was extremely fast, this put the local machine at a disadvantage since it had no cache. Therefore, for all of our benchmarks, we do not use direct I/O.
+
+A final benchmark we ran was to time how long it took to compile the Linux kernel on the volume. For this benchmark, we do not present throughput.
+
+FreEBS excels at random writes due to the log-structured nature of its backing store. It also seems to have done better than local for random reads -- this may be due to the relevant parts of the replica file remaining in cache after setup. Sequential read and write performance is quite bad. This is likely due to the synchronous nature of the tests; every request involves at least one round trip and multiple requests must be serviced serially. The Linux kernel build took twice as long on FreEBS, but this may also be affected by the fact that it was running inside a virtual machine. Further testing could mitigate these problems, but lack of time prevented us from accomplishing this.
