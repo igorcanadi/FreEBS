@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>FreEBS: A Distributed Virtual Block Device by igorcanadi</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="wrapper">
+      <header>
+        <h1>FreEBS: A Distributed Virtual Block Device</h1>
+        <p></p>
+
+        <p class="view"><a href="https://github.com/igorcanadi/FreEBS">View the Project on GitHub <small>igorcanadi/FreEBS</small></a></p>
+
+
+        <ul>
+          <li><a href="https://github.com/igorcanadi/FreEBS/zipball/master">Download <strong>ZIP File</strong></a></li>
+          <li><a href="https://github.com/igorcanadi/FreEBS/tarball/master">Download <strong>TAR Ball</strong></a></li>
+          <li><a href="https://github.com/igorcanadi/FreEBS">View On <strong>GitHub</strong></a></li>
+        </ul>
+      </header>
+      <section>
+        <h3>Igor Canadi, Rebecca Lam, James Paton</h3>
+
+<h3>University of Wisconsin - Madison</h3>
+
+<h4>Abstract</h4>
+
+<p>The primary goal of this project was to create a free, open-source implementation of Amazon EBS. We present FreEBS, a distributed virtual block device that uses chained replication and log-based virtual disks with the goals of availability, durability, and reliability in mind. Our backing storage also provides the framework for snapshotting, one of the main features of Amazon EBS that makes it more robust and resilient to failure.</p>
+
+<p>We compare our system's performance to the performance of native I/O on a local disk. We find that, for random and mixed random-sequential workloads, FreEBS performs with much higher throughput than local, while for purely sequential workloads it performs much more poorly.</p>
+
+<p>Finally, we argue that FreEBS points the way toward a viable commoditization of replicated block storage, exemplifying a novel model as compared to DRBD or SAN. This model has the potential to lower cost and increase performance.</p>
+      </section>
+      <footer>
+        <p>This project is maintained by <a href="https://github.com/igorcanadi">igorcanadi</a></p>
+        <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+      </footer>
+    </div>
+    <script src="javascripts/scale.fix.js"></script>
+              <script type="text/javascript">
+            var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+            document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
+          </script>
+          <script type="text/javascript">
+            try {
+              var pageTracker = _gat._getTracker("UA-41002200-1");
+            pageTracker._trackPageview();
+            } catch(err) {}
+          </script>
+
+  </body>
+</html>
