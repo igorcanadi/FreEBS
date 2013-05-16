@@ -7,6 +7,6 @@ randr.local.read        373.23
 randw.freebs.write      162.82
 randw.local.write       1462.72
 iometer.freebs.write    48321.61
-iometer.local.write     384.00
+iometer.local.write     92085.50
 iometer.freebs.read     48501.78
-iometer.local.read      380.70
+iometer.local.read      93373.24
