@@ -1,3 +1,8 @@
+As mentioned previously, we drew many of our ideas about EBS on past 
+work, especially DRBD\textsuperscript{\textregistered}. Here we 
+discuss related network and cloud storage systems and how our work 
+compares to them. 
+
 \subsection{DRBD}
 \label{sec:drbd}
 DRBD\textsuperscript{\textregistered} is a virtual RAID-1 block storage 
@@ -5,7 +10,7 @@ device consisting of two shared-nothing node that form a highly available
 \emph{cluster}. The DRBD\textsuperscript{\textregistered} interface is 
 implemented as a kernel module that can be mounted like a normal block 
 device. Since it is an open-source project, many aspects of its 
-implementation are availble; however, in this section we focus on the
+implementation are available; however, in this section we focus on the
 details of replication and synchronization.
 
 \subsubsection{Replication}
@@ -34,7 +39,7 @@ get cumbersome as we add more replicas.
 
 \subsubsection{Synchronization} 
 DRBD\textsuperscript{\textregistered} offers 
-variable-rate and fixed-rate synchronization\cite{drbd_manual}.
+variable-rate and fixed-rate synchronization \cite{drbd_manual}.
 For the first method, DRBD\textsuperscript{\textregistered} selects a 
 synchronization rate
 based on the network bandwidth. For the fixed-rate case, synchronization is
@@ -90,5 +95,8 @@ rather than mirroring.
 The main difference between these works and FreEBS is that they are built 
 for a shared virtual disk system and thus consider scalability and load
 balancing. FreEBS volumes, by contrast, only support being attached to one 
-machine at a time.
+machine at a time. FreEBS also utilizes a log-based backing file to keep
+track of changes, whereas the above systems do not.
+
+\XXX log FS?
 

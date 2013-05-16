@@ -13,7 +13,8 @@ volumes rather than blocks. This means that the entire disk has the same
 version number. 
 
 Figure~\ref{fig:write} shows the message flow on a write request. Notice
-that we utilize chained replication, where the closer the replica is to the 
+that, in a similar to fashion to Google File System~\cite{ghemawat2003google}, 
+we utilize chained replication, where the closer the replica is to the 
 head of the chain the more more up-to-date it is. The choice for this chained
 scheme is to reduce the network load to the driver. Thus, when 
 the driver sends a write request, \texttt{sdaemon} issues the write to its 
