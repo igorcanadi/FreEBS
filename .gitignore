@@ -43,7 +43,6 @@ paper/*.mtc
 paper/*.mtc1
 paper/*.out
 paper/*.synctex.gz
-paper/*.pdf
 
 # .orig files (?)
 *.orig
