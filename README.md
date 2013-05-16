@@ -1,4 +1,4 @@
 FreEBS
 ======
 
-FreEBS will be an open-source implementation of Amazon's Elastic Block Store.
+FreEBS is an open-source implementation of Amazon's Elastic Block Store.
