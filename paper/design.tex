@@ -28,7 +28,6 @@ responsible for interfacing with its private copy of the underlying storage
 that actually holds the device data, \emph{Log Structured Virtual Disk}
 (LSVD). LSVD is backed by a file on the server file system that uses a 
 dynamically growing file format. It provides checkpointing and versioning 
-for high data integrity. A more in-depth discussion about LSVD is in 
-Section~\ref{sec:lsvd}.
+for high data integrity. LSVD borrows ideas from Log Structured File System \cite{lfs}. A more in-depth discussion about LSVD is in Section~\ref{sec:lsvd}.
 
 

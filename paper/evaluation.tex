@@ -1,3 +1,5 @@
+To evaluate our implementation, we executed three sets of benchmarks. First, we evaluated LSVD implementation using simple microbenchmarks. Next, we demonstrated usefulness of checkpointing in LSVD. Finally, we executed some known file system benchmarks on ext4 mounted on remote FreEBS device.
+
 \subsection{Methodology}
 We ran our local experiments on one of two machines. The first was a Dell Precision T7500n Dual Processor desktop 
 computer running 64-bit RHEL6 built on the 2.6.32 kernel for CentOS6. This 
@@ -5,7 +7,7 @@ machine housed a Dual Quad Core Intel\textsuperscript{\textregistered}
 Xeon\textsuperscript{\textregistered} E5620 2.40GHz Processor, 24GB of RAM, 
 two 600GB 15K RPM hard drives and one 2TB hard drive. The second was a desktop machine in the mumble lab with an Intel Core 2 Quad Q9400 2.66GHz CPU and 8 GB of RAM running Red Hat Enterprise Linux Server 6.4. In both cases, the storage used was a local ext4 partition. In the following section, we will indicate which machine was used for each experiment.
 
-For testing FreEBS, we used a VirtualBox virtual machine for the client and ran our sdaemons on mumble machines identical to the mumble machine described above. The machines in the mumble lab are connected via a 1 gbps switch.
+For testing FreEBS, we used a VirtualBox virtual machine for the client and ran our storage daemons on mumble machines identical to the mumble machine described above. The machines in the mumble lab are connected via a 1 gbps switch.
 
 \subsection{LSVD microbenchmarks}
 First, we wanted to evaluate our LSVD implementation. Since LSVD exports interface very similar to a file, we can easily compare LSVD throughput to regular file throughput. These benchmarks were all run locally on the Dell.
@@ -23,6 +25,7 @@ All read and write operations were performed sequentially, without concurrency. 
 
 Table \ref{tab:lsvd} shows benchmark results. As expected, we see very similar performances for sequential write, sequential read and random read benchmarks. Since LSVD turns all random writes into sequential writes, random writes executed on LSVD show throughput 52x larger than sequential writes on a normal file. However, LSVD pays the price of fast random writes on subsequent sequential reads of the data. Benchmark sequential read 2 read the whole file again, but now with 128MB of new writes at random places in the file. Benchmark on the file showed the same throughput as first time. However, random writes decreased LSVD sequential read throughput by 2.3x.
 
+The benchmarks show that LSVD trades off fast random writes to slower sequential reads in some cases. However, with growing cache sizes, most of the reads are satisfied from cache and we argue this is a good trade-off to make.
 
 \begin{table}
 \centering
@@ -50,9 +53,11 @@ One of the important aspects of LSVD is checkpointing. We use it to keep recover
 
 The experiment started with a write operation, which kept sending new updates to LSVD file until we killed it with \texttt{SIGKILL}. We then opened LSVD file and measured how long does a recovery take.
 
-Figure \ref{fig:checkpointing} shows the results of the experiment. The horizontal axis shows runtime of the write before we killed it. Blue line shows time it took LSVD to recover to the state where it's able to receive new updates. Red line shows total data written during each experiment. When we ran the experiment for 150 seconds, it took LSVD 40 seconds to recover. However, when we ran the experiment for 200 seconds, recovery time was less than 5 seconds, even though we wrote more data to LSVD in total. These results show that our recovery time is bounded and does not grow linearly with number of updates or total data written. \XXX{say something about high recovery times at certain points}
+Figure \ref{fig:checkpointing} shows the results of the experiment. The horizontal axis shows runtime of the write before we killed it. Blue line shows time it took LSVD to recover to the state where it's able to receive new updates. Red line shows total data written during each experiment. When we ran the experiment for 150 seconds, it took LSVD 40 seconds to recover. However, when we ran the experiment for 200 seconds, recovery time was less than 5 seconds, even though we wrote more data to LSVD in total. These results show that our recovery time is bounded and does not grow linearly with number of updates or total data written.
 
-\begin{figure}
+It is interesting to see how recovery time grew rapidly when we executed write operation for 130 seconds. We have not looked into this issue more closely and are not sure what might be causing this slowdown.
+
+\begin{figure}[t!]
   \centering
    \includegraphics[width=3.5in]{figures/checkpointing.pdf}
    \caption{Recovery time after writing data to LSVD file for a specific amount of time.}
@@ -62,7 +67,7 @@ Figure \ref{fig:checkpointing} shows the results of the experiment. The horizont
 \subsection{File System Benchmarks}
 Finally, we measured FreEBS's performance as compared to local disk performance using both microbenchmarks and macrobenchmarks. Results for latency and throughput are presented in Figure \ref{fig:benchmarks}.
 
-\begin{figure}
+\begin{figure}[t!]
   \centering
    \includegraphics[width=3.5in]{figures/benchmarks.pdf}
    \caption{File system benchmarks}
